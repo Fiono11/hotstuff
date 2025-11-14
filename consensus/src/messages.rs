@@ -161,6 +161,49 @@ impl fmt::Debug for Vote {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RaiVote {
+    pub tx_hashes: Vec<Digest>,
+    pub author: PublicKey,
+    pub signature: Signature,
+}
+
+impl RaiVote {
+    // New method signature - accepts tx hashes instead of block
+    pub async fn new(
+        tx_hashes: Vec<Digest>, // Changed from: block: &Block
+        author: PublicKey,
+        mut signature_service: SignatureService,
+    ) -> Self {
+        let vote = Self {
+            tx_hashes: tx_hashes.clone(), // Changed from: hash: block.digest()
+            author,
+            signature: Signature::default(),
+        };
+        let signature = signature_service.request_signature(vote.digest()).await;
+        Self { signature, ..vote }
+    }
+}
+
+impl Hash for RaiVote {
+    fn digest(&self) -> Digest {
+        let mut hasher = Sha512::new();
+        // Sort hashes for deterministic ordering
+        let mut sorted_hashes = self.tx_hashes.clone();
+        sorted_hashes.sort();
+        for hash in &sorted_hashes {
+            hasher.update(hash);
+        }
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+}
+
+impl fmt::Debug for RaiVote {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "V({}, {:?})", self.author, self.tx_hashes)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct QC {
     pub hash: Digest,
