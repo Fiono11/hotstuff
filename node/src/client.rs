@@ -7,6 +7,7 @@ use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use rand::Rng;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
@@ -20,9 +21,6 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
     long_about = "Benchmark client for HotStuff nodes."
 )]
 struct Cli {
-    /// The network address of the node where to send txs.
-    #[clap(value_parser, value_name = "ADDR")]
-    target: SocketAddr,
     /// The nodes timeout value.
     #[clap(short, long, value_parser, value_name = "INT")]
     timeout: u64,
@@ -32,8 +30,15 @@ struct Cli {
     /// The rate (txs/s) at which to send the transactions.
     #[clap(short, long, value_parser, value_name = "INT")]
     rate: u64,
-    /// Network addresses that must be reachable before starting the benchmark.
-    #[clap(short, long, value_parser, value_name = "[Addr]", multiple = true)]
+    /// Network addresses of nodes to send transactions to.
+    #[clap(
+        short,
+        long,
+        value_parser,
+        value_name = "ADDR",
+        required = true,
+        multiple = true
+    )]
     nodes: Vec<SocketAddr>,
 }
 
@@ -45,15 +50,19 @@ async fn main() -> Result<()> {
         .format_timestamp_millis()
         .init();
 
-    info!("Node address: {}", cli.target);
+    // Remove duplicates from nodes list
+    let mut all_nodes: HashSet<SocketAddr> = HashSet::new();
+    all_nodes.extend(cli.nodes.iter().cloned());
+    let all_nodes_vec: Vec<SocketAddr> = all_nodes.into_iter().collect();
+
+    info!("Node addresses: {:?}", all_nodes_vec);
     info!("Transactions size: {} B", cli.size);
     info!("Transactions rate: {} tx/s", cli.rate);
     let client = Client {
-        target: cli.target,
         size: cli.size,
         rate: cli.rate,
         timeout: cli.timeout,
-        nodes: cli.nodes,
+        nodes: all_nodes_vec,
     };
 
     // Wait for all nodes to be online and synchronized.
@@ -64,7 +73,6 @@ async fn main() -> Result<()> {
 }
 
 struct Client {
-    target: SocketAddr,
     size: usize,
     rate: u64,
     timeout: u64,
@@ -83,17 +91,37 @@ impl Client {
             ));
         }
 
-        // Connect to the mempool.
-        let stream = TcpStream::connect(self.target)
-            .await
-            .context(format!("failed to connect to {}", self.target))?;
+        // Connect to all nodes.
+        info!("Connecting to {} nodes...", self.nodes.len());
+        let mut transports = Vec::new();
+        for address in &self.nodes {
+            match TcpStream::connect(address).await {
+                Ok(stream) => {
+                    let transport = Framed::new(stream, LengthDelimitedCodec::new());
+                    transports.push((address.clone(), transport));
+                    info!("Connected to {}", address);
+                }
+                Err(e) => {
+                    warn!("Failed to connect to {}: {}", address, e);
+                }
+            }
+        }
+
+        if transports.is_empty() {
+            return Err(anyhow::Error::msg("Failed to connect to any node"));
+        }
+
+        info!(
+            "Successfully connected to {}/{} nodes",
+            transports.len(),
+            self.nodes.len()
+        );
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
         let mut tx = BytesMut::with_capacity(self.size);
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
@@ -120,8 +148,22 @@ impl Client {
                 tx.resize(self.size, 0u8);
                 let bytes = tx.split().freeze();
 
-                if let Err(e) = transport.send(bytes).await {
-                    warn!("Failed to send transaction: {}", e);
+                // Broadcast to all connected nodes.
+                let mut failed_nodes = Vec::new();
+                for (idx, (address, transport)) in transports.iter_mut().enumerate() {
+                    if let Err(e) = transport.send(bytes.clone()).await {
+                        warn!("Failed to send transaction to {}: {}", address, e);
+                        failed_nodes.push(idx);
+                    }
+                }
+
+                // Remove failed connections (in reverse order to maintain indices).
+                for &idx in failed_nodes.iter().rev() {
+                    transports.remove(idx);
+                }
+
+                if transports.is_empty() {
+                    warn!("All connections failed, stopping");
                     break 'main;
                 }
             }

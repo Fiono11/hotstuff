@@ -169,14 +169,13 @@ pub struct RaiVote {
 }
 
 impl RaiVote {
-    // New method signature - accepts tx hashes instead of block
     pub async fn new(
-        tx_hashes: Vec<Digest>, // Changed from: block: &Block
+        tx_hashes: Vec<Digest>,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
-            tx_hashes: tx_hashes.clone(), // Changed from: hash: block.digest()
+            tx_hashes: tx_hashes.clone(),
             author,
             signature: Signature::default(),
         };
