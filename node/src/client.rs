@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
-use bytes::BufMut as _;
-use bytes::BytesMut;
+use bytes::Bytes;
 use clap::Parser;
+use crypto::generate_keypair;
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
-use rand::Rng;
+use mempool::TransactionData;
+use rand::rngs::OsRng;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -24,12 +25,21 @@ struct Cli {
     /// The nodes timeout value.
     #[clap(short, long, value_parser, value_name = "INT")]
     timeout: u64,
-    /// The size of each transaction in bytes.
-    #[clap(short, long, value_parser, value_name = "INT")]
-    size: usize,
     /// The rate (txs/s) at which to send the transactions.
     #[clap(short, long, value_parser, value_name = "INT")]
     rate: u64,
+    /// The amount for each transaction.
+    #[clap(short, long, value_parser, value_name = "INT", default_value = "100")]
+    amount: u64,
+    /// The epoch for transactions.
+    #[clap(
+        short = 'e',
+        long,
+        value_parser,
+        value_name = "INT",
+        default_value = "0"
+    )]
+    epoch: u64,
     /// Network addresses of nodes to send transactions to.
     #[clap(
         short,
@@ -56,12 +66,14 @@ async fn main() -> Result<()> {
     let all_nodes_vec: Vec<SocketAddr> = all_nodes.into_iter().collect();
 
     info!("Node addresses: {:?}", all_nodes_vec);
-    info!("Transactions size: {} B", cli.size);
+    info!("Transaction amount: {}", cli.amount);
+    info!("Transaction epoch: {}", cli.epoch);
     info!("Transactions rate: {} tx/s", cli.rate);
     let client = Client {
-        size: cli.size,
         rate: cli.rate,
         timeout: cli.timeout,
+        amount: cli.amount,
+        epoch: cli.epoch,
         nodes: all_nodes_vec,
     };
 
@@ -73,9 +85,10 @@ async fn main() -> Result<()> {
 }
 
 struct Client {
-    size: usize,
     rate: u64,
     timeout: u64,
+    amount: u64,
+    epoch: u64,
     nodes: Vec<SocketAddr>,
 }
 
@@ -83,13 +96,6 @@ impl Client {
     pub async fn send(&self) -> Result<()> {
         const PRECISION: u64 = 20; // Sample precision.
         const BURST_DURATION: u64 = 1000 / PRECISION;
-
-        // The transaction size must be at least 16 bytes to ensure all txs are different.
-        if self.size < 16 {
-            return Err(anyhow::Error::msg(
-                "Transaction size must be at least 9 bytes",
-            ));
-        }
 
         // Connect to all nodes.
         info!("Connecting to {} nodes...", self.nodes.len());
@@ -117,11 +123,18 @@ impl Client {
             self.nodes.len()
         );
 
+        // Generate fixed sender and destination keys for this client instance.
+        // Each transaction will have a unique nonce to ensure uniqueness.
+        let mut rng = OsRng;
+        let (sender, _) = generate_keypair(&mut rng);
+        let (destination, _) = generate_keypair(&mut rng);
+
+        info!("Sender: {}", sender);
+        info!("Destination: {}", destination);
+
         // Submit all transactions.
         let burst = self.rate / PRECISION;
-        let mut tx = BytesMut::with_capacity(self.size);
-        let mut counter = 0;
-        let mut r = rand::thread_rng().gen();
+        let mut counter = 0u32;
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
@@ -133,20 +146,25 @@ impl Client {
             let now = Instant::now();
 
             for x in 0..burst {
-                if x == counter % burst {
+                if x == (counter as u64) % burst {
                     // NOTE: This log entry is used to compute performance.
                     info!("Sending sample transaction {}", counter);
+                }
 
-                    tx.put_u8(0u8); // Sample txs start with 0.
-                    tx.put_u64(counter); // This counter identifies the tx.
-                } else {
-                    r += 1;
-
-                    tx.put_u8(1u8); // Standard txs start with 1.
-                    tx.put_u64(r); // Ensures all clients send different txs.
+                // Create real transaction data.
+                let tx_data = TransactionData {
+                    sender,
+                    amount: self.amount,
+                    destination,
+                    nonce: 0,
+                    epoch: self.epoch,
                 };
-                tx.resize(self.size, 0u8);
-                let bytes = tx.split().freeze();
+
+                // Serialize the transaction.
+                let bytes: Bytes = tx_data
+                    .to_transaction()
+                    .context("Failed to serialize transaction")?
+                    .into();
 
                 // Broadcast to all connected nodes.
                 let mut failed_nodes = Vec::new();

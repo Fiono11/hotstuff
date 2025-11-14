@@ -12,4 +12,5 @@ mod transaction;
 mod common;
 
 pub use crate::config::{Committee, Parameters};
-pub use crate::mempool::{ConsensusMempoolMessage, Mempool};
+pub use crate::mempool::{ConsensusMempoolMessage, Mempool, MempoolMessage};
+pub use crate::transaction::{Transaction, TransactionData};
