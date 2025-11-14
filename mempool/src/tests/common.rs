@@ -1,6 +1,7 @@
-use crate::batch_maker::{Batch, Transaction};
+use crate::batch_maker::Batch;
 use crate::config::Committee;
 use crate::mempool::MempoolMessage;
+use crate::transaction::Transaction;
 use bytes::Bytes;
 use crypto::{generate_keypair, Digest, PublicKey, SecretKey};
 use ed25519_dalek::Digest as _;

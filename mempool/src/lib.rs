@@ -5,6 +5,7 @@ mod mempool;
 mod processor;
 mod quorum_waiter;
 mod synchronizer;
+mod transaction;
 
 #[cfg(test)]
 #[path = "tests/common.rs"]
