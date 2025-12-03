@@ -83,24 +83,35 @@ impl Client {
             ));
         }
 
-        // Connect to the mempool.
-        let stream = TcpStream::connect(self.target)
-            .await
-            .context(format!("failed to connect to {}", self.target))?;
+        // Collect all target addresses (include target and all nodes).
+        let mut all_targets = vec![self.target];
+        all_targets.extend(self.nodes.iter().cloned());
+        all_targets.sort();
+        all_targets.dedup();
+
+        // Connect to all nodes.
+        info!("Connecting to {} nodes...", all_targets.len());
+        let mut transports = Vec::new();
+        for address in &all_targets {
+            let stream = TcpStream::connect(*address)
+                .await
+                .context(format!("failed to connect to {}", address))?;
+            transports.push(Framed::new(stream, LengthDelimitedCodec::new()));
+        }
+        info!("Connected to all {} nodes", transports.len());
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
         let mut tx = BytesMut::with_capacity(self.size);
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
         // NOTE: This log entry is used to compute performance.
         info!("Start sending transactions");
 
-        'main: loop {
+        loop {
             interval.as_mut().tick().await;
             let now = Instant::now();
 
@@ -120,9 +131,16 @@ impl Client {
                 tx.resize(self.size, 0u8);
                 let bytes = tx.split().freeze();
 
-                if let Err(e) = transport.send(bytes).await {
-                    warn!("Failed to send transaction: {}", e);
-                    break 'main;
+                // Send transaction to all nodes in parallel.
+                let send_futures: Vec<_> = transports
+                    .iter_mut()
+                    .map(|transport| transport.send(bytes.clone()))
+                    .collect();
+
+                let results = join_all(send_futures).await;
+                if let Some(Err(e)) = results.iter().find(|r| r.is_err()) {
+                    warn!("Failed to send transaction to at least one node: {}", e);
+                    // Continue sending even if one node fails
                 }
             }
             if now.elapsed().as_millis() > BURST_DURATION as u128 {
@@ -131,7 +149,6 @@ impl Client {
             }
             counter += 1;
         }
-        Ok(())
     }
 
     pub async fn wait(&self) {

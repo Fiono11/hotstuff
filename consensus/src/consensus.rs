@@ -2,11 +2,7 @@ use crate::config::{Committee, Parameters};
 use crate::core::Core;
 use crate::error::ConsensusError;
 use crate::helper::Helper;
-use crate::leader::LeaderElector;
-use crate::mempool::MempoolDriver;
 use crate::messages::{Block, Timeout, Vote, TC};
-use crate::proposer::Proposer;
-use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
@@ -49,15 +45,13 @@ impl Consensus {
         signature_service: SignatureService,
         store: Store,
         rx_mempool: Receiver<Digest>,
-        tx_mempool: Sender<ConsensusMempoolMessage>,
-        tx_commit: Sender<Block>,
+        _tx_mempool: Sender<ConsensusMempoolMessage>,
+        tx_commit: Sender<Digest>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
 
         let (tx_consensus, rx_consensus) = channel(CHANNEL_CAPACITY);
-        let (tx_loopback, rx_loopback) = channel(CHANNEL_CAPACITY);
-        let (tx_proposer, rx_proposer) = channel(CHANNEL_CAPACITY);
         let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
 
         // Spawn the network receiver.
@@ -78,45 +72,14 @@ impl Consensus {
             name, address
         );
 
-        // Make the leader election module.
-        let leader_elector = LeaderElector::new(committee.clone());
-
-        // Make the mempool driver.
-        let mempool_driver = MempoolDriver::new(store.clone(), tx_mempool, tx_loopback.clone());
-
-        // Make the synchronizer.
-        let synchronizer = Synchronizer::new(
-            name,
-            committee.clone(),
-            store.clone(),
-            tx_loopback.clone(),
-            parameters.sync_retry_delay,
-        );
-
         // Spawn the consensus core.
         Core::spawn(
             name,
             committee.clone(),
             signature_service.clone(),
-            store.clone(),
-            leader_elector,
-            mempool_driver,
-            synchronizer,
-            parameters.timeout_delay,
             /* rx_message */ rx_consensus,
-            rx_loopback,
-            tx_proposer,
-            tx_commit,
-        );
-
-        // Spawn the block proposer.
-        Proposer::spawn(
-            name,
-            committee.clone(),
-            signature_service,
             rx_mempool,
-            /* rx_message */ rx_proposer,
-            tx_loopback,
+            tx_commit,
         );
 
         // Spawn the helper module.

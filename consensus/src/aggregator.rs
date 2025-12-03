@@ -2,7 +2,6 @@ use crate::config::{Committee, Stake};
 use crate::consensus::Round;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{Timeout, Vote, QC, TC};
-use crypto::Hash as _;
 use crypto::{Digest, PublicKey, Signature};
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +11,7 @@ pub mod aggregator_tests;
 
 pub struct Aggregator {
     committee: Committee,
-    votes_aggregators: HashMap<Round, HashMap<Digest, Box<QCMaker>>>,
+    votes_aggregators: HashMap<Digest, Box<QCMaker>>,
     timeouts_aggregators: HashMap<Round, Box<TCMaker>>,
 }
 
@@ -27,13 +26,11 @@ impl Aggregator {
 
     pub fn add_vote(&mut self, vote: Vote) -> ConsensusResult<Option<QC>> {
         // TODO [issue #7]: A bad node may make us run out of memory by sending many votes
-        // with different round numbers or different digests.
+        // with different digests.
 
         // Add the new vote to our aggregator and see if we have a QC.
         self.votes_aggregators
-            .entry(vote.round)
-            .or_insert_with(HashMap::new)
-            .entry(vote.digest())
+            .entry(vote.hash.clone())
             .or_insert_with(|| Box::new(QCMaker::new()))
             .append(vote, &self.committee)
     }
@@ -49,9 +46,10 @@ impl Aggregator {
             .append(timeout, &self.committee)
     }
 
-    pub fn cleanup(&mut self, round: &Round) {
-        self.votes_aggregators.retain(|k, _| k >= round);
-        self.timeouts_aggregators.retain(|k, _| k >= round);
+    pub fn cleanup(&mut self, _round: &Round) {
+        // Note: cleanup is no longer needed for votes since they're organized by digest only.
+        // Timeouts still use rounds, so we keep that cleanup.
+        self.timeouts_aggregators.retain(|k, _| k >= _round);
     }
 }
 
@@ -86,7 +84,6 @@ impl QCMaker {
             self.weight = 0; // Ensures QC is only made once.
             return Ok(Some(QC {
                 hash: vote.hash.clone(),
-                round: vote.round,
                 votes: self.votes.clone(),
             }));
         }
@@ -124,8 +121,8 @@ impl TCMaker {
         );
 
         // Add the timeout to the accumulator.
-        self.votes
-            .push((author, timeout.signature, timeout.high_qc.round));
+        // Note: high_qc no longer has a round, so we use 0 as a placeholder.
+        self.votes.push((author, timeout.signature, 0));
         self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures TC is only created once.

@@ -112,7 +112,6 @@ impl fmt::Display for Block {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
     pub hash: Digest,
-    pub round: Round,
     pub author: PublicKey,
     pub signature: Signature,
 }
@@ -125,7 +124,6 @@ impl Vote {
     ) -> Self {
         let vote = Self {
             hash: block.digest(),
-            round: block.round,
             author,
             signature: Signature::default(),
         };
@@ -150,21 +148,19 @@ impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(&self.hash);
-        hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 
 impl fmt::Debug for Vote {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "V({}, {}, {})", self.author, self.round, self.hash)
+        write!(f, "V({}, {})", self.author, self.hash)
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct QC {
     pub hash: Digest,
-    pub round: Round,
     pub votes: Vec<(PublicKey, Signature)>,
 }
 
@@ -174,7 +170,7 @@ impl QC {
     }
 
     pub fn timeout(&self) -> bool {
-        self.hash == Digest::default() && self.round != 0
+        self.hash == Digest::default()
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -202,20 +198,19 @@ impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(&self.hash);
-        hasher.update(self.round.to_le_bytes());
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 
 impl fmt::Debug for QC {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "QC({}, {})", self.hash, self.round)
+        write!(f, "QC({})", self.hash)
     }
 }
 
 impl PartialEq for QC {
     fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash && self.round == other.round
+        self.hash == other.hash
     }
 }
 
@@ -269,7 +264,7 @@ impl Hash for Timeout {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(self.round.to_le_bytes());
-        hasher.update(self.high_qc.round.to_le_bytes());
+        hasher.update(&self.high_qc.hash);
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }

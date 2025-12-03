@@ -1,7 +1,7 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
-use consensus::{Block, Consensus};
-use crypto::SignatureService;
+use consensus::Consensus;
+use crypto::{Digest, SignatureService};
 use log::info;
 use mempool::Mempool;
 use store::Store;
@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{channel, Receiver};
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
-    pub commit: Receiver<Block>,
+    pub commit: Receiver<Digest>,
 }
 
 impl Node {
@@ -74,8 +74,8 @@ impl Node {
     }
 
     pub async fn analyze_block(&mut self) {
-        while let Some(_block) = self.commit.recv().await {
-            // This is where we can further process committed block.
+        while let Some(_tx) = self.commit.recv().await {
+            // This is where we can further process committed transaction digests.
         }
     }
 }

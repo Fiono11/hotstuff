@@ -8,7 +8,6 @@ mod helper;
 mod leader;
 mod mempool;
 mod messages;
-mod proposer;
 mod synchronizer;
 mod timer;
 
