@@ -8,8 +8,10 @@ use crypto::Hash as _;
 use crypto::{Digest, PublicKey, Signature, SignatureService};
 use ed25519_dalek::{Digest as _, Sha512};
 use log::{debug, error, info, warn};
+use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;
 use std::convert::TryInto;
+use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[cfg(test)]
@@ -25,6 +27,10 @@ pub struct Core {
     rx_mempool: Receiver<Vec<Digest>>,
     /// Send committed transaction digests to the application layer.
     tx_commit: Sender<Digest>,
+    /// Send synchronization requests to the mempool.
+    tx_mempool: Sender<ConsensusMempoolMessage>,
+    /// The persistent storage to check for missing transactions.
+    store: Store,
     aggregator: Aggregator,
     network: SimpleSender,
 }
@@ -38,6 +44,8 @@ impl Core {
         rx_message: Receiver<ConsensusMessage>,
         rx_mempool: Receiver<Vec<Digest>>,
         tx_commit: Sender<Digest>,
+        tx_mempool: Sender<ConsensusMempoolMessage>,
+        store: Store,
     ) {
         tokio::spawn(async move {
             Self {
@@ -47,6 +55,8 @@ impl Core {
                 rx_message,
                 rx_mempool,
                 tx_commit,
+                tx_mempool,
+                store,
                 aggregator: Aggregator::new(committee),
                 network: SimpleSender::new(),
             }
@@ -61,6 +71,37 @@ impl Core {
 
         // Ensure the vote is well formed.
         vote.verify(&self.committee)?;
+
+        // Check if we have all transactions referenced in the vote.
+        // If the vote has a payload, check each digest in the payload.
+        // If the vote has no payload, check the vote's hash itself.
+        let mut missing = Vec::new();
+        if !vote.payload.is_empty() {
+            // Check each digest in the payload.
+            for digest in &vote.payload {
+                if self.store.read(digest.to_vec()).await?.is_none() {
+                    missing.push(digest.clone());
+                }
+            }
+        } else {
+            // Single transaction vote: check the vote's hash.
+            if self.store.read(vote.hash.to_vec()).await?.is_none() {
+                missing.push(vote.hash.clone());
+            }
+        }
+
+        // If we're missing transactions, request them from the voter via mempool.
+        if !missing.is_empty() {
+            debug!(
+                "Missing {} transactions from vote by {}, requesting from mempool",
+                missing.len(),
+                vote.author
+            );
+            let message = ConsensusMempoolMessage::Synchronize(missing, vote.author);
+            if let Err(e) = self.tx_mempool.send(message).await {
+                warn!("Failed to send sync message to mempool: {}", e);
+            }
+        }
 
         // If the vote has a payload (batch vote), extract each digest and vote for it individually
         // (quorum is computed per transaction).

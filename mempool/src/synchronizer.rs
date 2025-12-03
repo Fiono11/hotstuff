@@ -108,27 +108,24 @@ impl Synchronizer {
                             .expect("Failed to measure time")
                             .as_millis();
 
-                        let mut missing = Vec::new();
-                        for digest in digests {
-                            // Ensure we do not send twice the same sync request.
-                            if self.pending.contains_key(&digest) {
-                                continue;
+                        // Track which digests are new (not already pending) to add waiters for them.
+                        for digest in &digests {
+                            // Only add a waiter if we're not already tracking this digest.
+                            if !self.pending.contains_key(digest) {
+                                debug!("Requesting sync for batch {}", digest);
+
+                                // Add the digest to the waiter.
+                                let deliver = digest.clone();
+                                let (tx_cancel, rx_cancel) = channel(1);
+                                let fut = Self::waiter(digest.clone(), self.store.clone(), deliver, rx_cancel);
+                                waiting.push(fut);
+                                self.pending.insert(digest.clone(), (self.round, tx_cancel, now));
                             }
-
-                            // Register the digest as missing.
-                            missing.push(digest.clone());
-                            debug!("Requesting sync for batch {}", digest);
-
-                            // Add the digest to the waiter.
-                            let deliver = digest.clone();
-                            let (tx_cancel, rx_cancel) = channel(1);
-                            let fut = Self::waiter(digest.clone(), self.store.clone(), deliver, rx_cancel);
-                            waiting.push(fut);
-                            self.pending.insert(digest, (self.round, tx_cancel, now));
                         }
 
-                        // Send sync request to a single node. If this fails, we will send it
-                        // to other nodes when a timer times out.
+                        // Send sync request to the target node with ALL digests from the Synchronize message.
+                        // We send all digests even if some are already pending, as the target might
+                        // have the transactions now even if we're still waiting.
                         let address = match self.committee.mempool_address(&target) {
                             Some(address) => address,
                             None => {
@@ -136,7 +133,7 @@ impl Synchronizer {
                                 continue;
                             }
                         };
-                        let message = MempoolMessage::BatchRequest(missing, self.name);
+                        let message = MempoolMessage::BatchRequest(digests, self.name);
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },

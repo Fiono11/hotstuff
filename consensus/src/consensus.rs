@@ -43,7 +43,7 @@ impl Consensus {
         signature_service: SignatureService,
         store: Store,
         rx_mempool: Receiver<Vec<Digest>>,
-        _tx_mempool: Sender<ConsensusMempoolMessage>,
+        tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Digest>,
     ) {
         // NOTE: This log entry is used to compute performance.
@@ -78,6 +78,8 @@ impl Consensus {
             /* rx_message */ rx_consensus,
             rx_mempool,
             tx_commit,
+            tx_mempool.clone(),
+            store.clone(),
         );
 
         // Spawn the helper module.

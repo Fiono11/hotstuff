@@ -1,7 +1,7 @@
 use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use crate::config::{Committee, Parameters};
 use crate::helper::Helper;
-use crate::processor::{Processor, SerializedBatchMessage};
+use crate::processor::Processor;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -197,7 +197,7 @@ impl MessageHandler for TxReceiverHandler {
 #[derive(Clone)]
 struct MempoolReceiverHandler {
     tx_helper: Sender<(Vec<Digest>, PublicKey)>,
-    tx_processor: Sender<SerializedBatchMessage>,
+    tx_processor: Sender<Batch>,
 }
 
 #[async_trait]
@@ -208,9 +208,9 @@ impl MessageHandler for MempoolReceiverHandler {
 
         // Deserialize and parse the message.
         match bincode::deserialize(&serialized) {
-            Ok(MempoolMessage::Batch(..)) => self
+            Ok(MempoolMessage::Batch(batch)) => self
                 .tx_processor
-                .send(serialized.to_vec())
+                .send(batch)
                 .await
                 .expect("Failed to send batch"),
             Ok(MempoolMessage::BatchRequest(missing, requestor)) => self

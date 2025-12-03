@@ -1,4 +1,6 @@
+use crate::batch_maker::Batch;
 use crate::config::Committee;
+use crate::mempool::MempoolMessage;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey};
 use log::{error, warn};
@@ -44,7 +46,7 @@ impl Helper {
         while let Some((digests, origin)) = self.rx_request.recv().await {
             // TODO [issue #7]: Do some accounting to prevent bad nodes from monopolizing our resources.
 
-            // get the requestors address.
+            // Get the requestor's address.
             let address = match self.committee.mempool_address(&origin) {
                 Some(x) => x,
                 None => {
@@ -53,12 +55,33 @@ impl Helper {
                 }
             };
 
-            // Reply to the request (the best we can).
+            // Collect all available transactions from the store.
+            let mut batch: Batch = Vec::new();
             for digest in digests {
                 match self.store.read(digest.to_vec()).await {
-                    Ok(Some(data)) => self.network.send(address, Bytes::from(data)).await,
-                    Ok(None) => (),
-                    Err(e) => error!("{}", e),
+                    Ok(Some(data)) => {
+                        // The data stored is the raw transaction bytes.
+                        batch.push(data);
+                    }
+                    Ok(None) => {
+                        // Transaction not found in store, skip it.
+                    }
+                    Err(e) => {
+                        error!("Failed to read transaction {} from store: {}", digest, e);
+                    }
+                }
+            }
+
+            // Send the batch as a MempoolMessage::Batch if we have any transactions.
+            if !batch.is_empty() {
+                let message = MempoolMessage::Batch(batch);
+                match bincode::serialize(&message) {
+                    Ok(serialized) => {
+                        self.network.send(address, Bytes::from(serialized)).await;
+                    }
+                    Err(e) => {
+                        error!("Failed to serialize batch message: {}", e);
+                    }
                 }
             }
         }
