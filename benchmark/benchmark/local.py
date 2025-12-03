@@ -43,7 +43,7 @@ class LocalBench:
 
         try:
             Print.info('Setting up testbed...')
-            nodes, rate = self.nodes[0], self.rate[0]
+            nodes = self.nodes[0]
 
             # Cleanup all files.
             cmd = f'{CommandMaker.clean_logs()} ; {CommandMaker.cleanup()}'
@@ -78,13 +78,10 @@ class LocalBench:
             # Run a single client that sends all transactions to all nodes.
             addresses = committee.front
             timeout = self.node_parameters.timeout_delay
-            # Use the first address as the target, but send to all nodes
-            target_addr = addresses[0]
             cmd = CommandMaker.run_client(
-                target_addr,
                 self.tx_size,
-                rate,  # Use full rate since there's only one client
                 timeout,
+                self.total_txs,
                 nodes=addresses  # Send to all nodes
             )
             self._background_run(cmd, PathMaker.client_log_file(0))

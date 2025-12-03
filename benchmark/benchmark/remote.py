@@ -185,12 +185,11 @@ class Bench:
         # for the faulty nodes to be online).
         committee = Committee.load(PathMaker.committee_file())
         addresses = [f"{x}:{self.settings.front_port}" for x in hosts]
-        rate_share = ceil(rate / committee.size())  # Take faults into account.
         timeout = node_parameters.timeout_delay
         client_logs = [PathMaker.client_log_file(i) for i in range(len(hosts))]
-        for host, addr, log_file in zip(hosts, addresses, client_logs):
+        for host, log_file in zip(hosts, client_logs):
             cmd = CommandMaker.run_client(
-                addr, bench_parameters.tx_size, rate_share, timeout, nodes=addresses
+                bench_parameters.tx_size, timeout, bench_parameters.total_txs, nodes=addresses
             )
             self._background_run(host, cmd, log_file)
 

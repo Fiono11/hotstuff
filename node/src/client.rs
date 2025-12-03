@@ -2,14 +2,17 @@ use anyhow::{Context, Result};
 use bytes::BufMut as _;
 use bytes::BytesMut;
 use clap::Parser;
+use crypto::Digest;
+use ed25519_dalek::{Digest as _, Sha512};
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use rand::Rng;
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
-use tokio::time::{interval, sleep, Duration, Instant};
+use tokio::time::{sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 #[derive(Parser)]
@@ -20,18 +23,15 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
     long_about = "Benchmark client for HotStuff nodes."
 )]
 struct Cli {
-    /// The network address of the node where to send txs.
-    #[clap(value_parser, value_name = "ADDR")]
-    target: SocketAddr,
     /// The nodes timeout value.
     #[clap(short, long, value_parser, value_name = "INT")]
     timeout: u64,
     /// The size of each transaction in bytes.
     #[clap(short, long, value_parser, value_name = "INT")]
     size: usize,
-    /// The rate (txs/s) at which to send the transactions.
+    /// The total number of transactions to send.
     #[clap(short, long, value_parser, value_name = "INT")]
-    rate: u64,
+    total_txs: u64,
     /// Network addresses that must be reachable before starting the benchmark.
     #[clap(short, long, value_parser, value_name = "[Addr]", multiple = true)]
     nodes: Vec<SocketAddr>,
@@ -45,13 +45,11 @@ async fn main() -> Result<()> {
         .format_timestamp_millis()
         .init();
 
-    info!("Node address: {}", cli.target);
     info!("Transactions size: {} B", cli.size);
-    info!("Transactions rate: {} tx/s", cli.rate);
+    info!("Total transactions: {}", cli.total_txs);
     let client = Client {
-        target: cli.target,
         size: cli.size,
-        rate: cli.rate,
+        total_txs: cli.total_txs,
         timeout: cli.timeout,
         nodes: cli.nodes,
     };
@@ -64,19 +62,14 @@ async fn main() -> Result<()> {
 }
 
 struct Client {
-    target: SocketAddr,
     size: usize,
-    rate: u64,
+    total_txs: u64,
     timeout: u64,
     nodes: Vec<SocketAddr>,
 }
 
 impl Client {
     pub async fn send(&self) -> Result<()> {
-        const PRECISION: u64 = 20; // Sample precision.
-        const BURST_DURATION: u64 = 1000 / PRECISION;
-        const TOTAL_TRANSACTIONS: u64 = 10000; // Hardcoded total number of transactions to send.
-
         // The transaction size must be at least 16 bytes to ensure all txs are different.
         if self.size < 16 {
             return Err(anyhow::Error::msg(
@@ -84,9 +77,8 @@ impl Client {
             ));
         }
 
-        // Collect all target addresses (include target and all nodes).
-        let mut all_targets = vec![self.target];
-        all_targets.extend(self.nodes.iter().cloned());
+        // Collect all target addresses (use nodes directly).
+        let mut all_targets = self.nodes.clone();
         all_targets.sort();
         all_targets.dedup();
 
@@ -102,63 +94,43 @@ impl Client {
         info!("Connected to all {} nodes", transports.len());
 
         // Submit all transactions.
-        let burst = self.rate / PRECISION;
         let mut tx = BytesMut::with_capacity(self.size);
-        let mut counter = 0;
         let mut total_sent = 0u64;
         let mut r = rand::thread_rng().gen();
-        let interval = interval(Duration::from_millis(BURST_DURATION));
-        tokio::pin!(interval);
 
         // NOTE: This log entry is used to compute performance.
-        info!("Start sending transactions (total: {})", TOTAL_TRANSACTIONS);
+        info!("Start sending transactions (total: {})", self.total_txs);
 
-        loop {
-            interval.as_mut().tick().await;
-            let now = Instant::now();
+        while total_sent < self.total_txs {
+            r += 1;
+            tx.put_u8(1u8);
+            tx.put_u64(r); // Ensures all clients send different txs.
+            tx.resize(self.size, 0u8);
+            let bytes = tx.split().freeze();
 
-            for x in 0..burst {
-                // Check if we've sent all required transactions.
-                if total_sent >= TOTAL_TRANSACTIONS {
-                    info!("Sent all {} transactions, exiting", TOTAL_TRANSACTIONS);
-                    return Ok(());
-                }
+            // Calculate digest of the transaction
+            let digest = Digest(Sha512::digest(&bytes).as_slice()[..32].try_into().unwrap());
 
-                if x == counter % burst {
-                    // NOTE: This log entry is used to compute performance.
-                    info!("Sending sample transaction {}", counter);
+            // Log all transactions with digest
+            info!("Sending transaction {} digest: {:?}", total_sent, digest);
 
-                    tx.put_u8(0u8); // Sample txs start with 0.
-                    tx.put_u64(counter); // This counter identifies the tx.
-                } else {
-                    r += 1;
+            // Send transaction to all nodes in parallel.
+            let send_futures: Vec<_> = transports
+                .iter_mut()
+                .map(|transport| transport.send(bytes.clone()))
+                .collect();
 
-                    tx.put_u8(1u8); // Standard txs start with 1.
-                    tx.put_u64(r); // Ensures all clients send different txs.
-                };
-                tx.resize(self.size, 0u8);
-                let bytes = tx.split().freeze();
-
-                // Send transaction to all nodes in parallel.
-                let send_futures: Vec<_> = transports
-                    .iter_mut()
-                    .map(|transport| transport.send(bytes.clone()))
-                    .collect();
-
-                let results = join_all(send_futures).await;
-                if let Some(Err(e)) = results.iter().find(|r| r.is_err()) {
-                    warn!("Failed to send transaction to at least one node: {}", e);
-                    // Continue sending even if one node fails
-                }
-
-                total_sent += 1;
+            let results = join_all(send_futures).await;
+            if let Some(Err(e)) = results.iter().find(|r| r.is_err()) {
+                warn!("Failed to send transaction to at least one node: {}", e);
+                // Continue sending even if one node fails
             }
-            if now.elapsed().as_millis() > BURST_DURATION as u128 {
-                // NOTE: This log entry is used to compute performance.
-                warn!("Transaction rate too high for this client");
-            }
-            counter += 1;
+
+            total_sent += 1;
         }
+
+        info!("Sent all {} transactions, exiting", self.total_txs);
+        Ok(())
     }
 
     pub async fn wait(&self) {

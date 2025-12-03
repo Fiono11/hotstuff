@@ -31,7 +31,7 @@ class LogParser:
                 results = p.map(self._parse_clients, clients)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse client logs: {e}')
-        self.size, self.rate, self.start, misses, self.sent_samples \
+        self.size, self.total_txs, self.start, misses, self.sent_samples \
             = zip(*results)
         self.misses = sum(misses)
 
@@ -50,7 +50,7 @@ class LogParser:
         }
         self.timeouts = max(timeouts)
 
-        # Check whether clients missed their target rate.
+        # Check whether clients missed their target rate (if applicable).
         if self.misses != 0:
             Print.warn(
                 f'Clients missed their target rate {self.misses:,} time(s)'
@@ -74,10 +74,20 @@ class LogParser:
         if search(r'Error', log) is not None:
             raise ParseError('Client(s) panicked')
 
-        size = int(search(r'Transactions size: (\d+)', log).group(1))
-        rate = int(search(r'Transactions rate: (\d+)', log).group(1))
+        size_match = search(r'Transactions size: (\d+)', log)
+        if size_match is None:
+            raise ParseError('Failed to parse transaction size from client log')
+        size = int(size_match.group(1))
+        
+        total_txs_match = search(r'Total transactions: (\d+)', log)
+        if total_txs_match is None:
+            raise ParseError('Failed to parse total transactions from client log')
+        total_txs = int(total_txs_match.group(1))
 
-        tmp = search(r'\[(.*Z) .* Start ', log).group(1)
+        start_match = search(r'\[(.*Z) .* Start ', log)
+        if start_match is None:
+            raise ParseError('Failed to parse start time from client log')
+        tmp = start_match.group(1)
         start = self._to_posix(tmp)
 
         misses = len(findall(r'rate too high', log))
@@ -85,7 +95,7 @@ class LogParser:
         tmp = findall(r'\[(.*Z) .* sample transaction (\d+)', log)
         samples = {int(s): self._to_posix(t) for t, s in tmp}
 
-        return size, rate, start, misses, samples
+        return size, total_txs, start, misses, samples
 
     def _parse_nodes(self, log):
         if search(r'panic', log) is not None:
@@ -217,7 +227,7 @@ class LogParser:
             ' + CONFIG:\n'
             f' Faults: {self.faults} nodes\n'
             f' Committee size: {self.committee_size} nodes\n'
-            f' Input rate: {sum(self.rate):,} tx/s\n'
+            f' Total transactions: {sum(self.total_txs):,} tx\n'
             f' Transaction size: {self.size[0]:,} B\n'
             f' Execution time: {round(duration):,} s\n'
             '\n'
