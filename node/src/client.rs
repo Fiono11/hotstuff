@@ -75,6 +75,7 @@ impl Client {
     pub async fn send(&self) -> Result<()> {
         const PRECISION: u64 = 20; // Sample precision.
         const BURST_DURATION: u64 = 1000 / PRECISION;
+        const TOTAL_TRANSACTIONS: u64 = 10000; // Hardcoded total number of transactions to send.
 
         // The transaction size must be at least 16 bytes to ensure all txs are different.
         if self.size < 16 {
@@ -104,18 +105,25 @@ impl Client {
         let burst = self.rate / PRECISION;
         let mut tx = BytesMut::with_capacity(self.size);
         let mut counter = 0;
+        let mut total_sent = 0u64;
         let mut r = rand::thread_rng().gen();
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
 
         // NOTE: This log entry is used to compute performance.
-        info!("Start sending transactions");
+        info!("Start sending transactions (total: {})", TOTAL_TRANSACTIONS);
 
         loop {
             interval.as_mut().tick().await;
             let now = Instant::now();
 
             for x in 0..burst {
+                // Check if we've sent all required transactions.
+                if total_sent >= TOTAL_TRANSACTIONS {
+                    info!("Sent all {} transactions, exiting", TOTAL_TRANSACTIONS);
+                    return Ok(());
+                }
+
                 if x == counter % burst {
                     // NOTE: This log entry is used to compute performance.
                     info!("Sending sample transaction {}", counter);
@@ -142,6 +150,8 @@ impl Client {
                     warn!("Failed to send transaction to at least one node: {}", e);
                     // Continue sending even if one node fails
                 }
+
+                total_sent += 1;
             }
             if now.elapsed().as_millis() > BURST_DURATION as u128 {
                 // NOTE: This log entry is used to compute performance.

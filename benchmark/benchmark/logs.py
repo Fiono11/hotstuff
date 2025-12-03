@@ -101,13 +101,9 @@ class LogParser:
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
-        # Parse batch sizes from sealed batch logs (for reference, not used in calculations).
+        # Sizes are no longer needed since we calculate from transaction count and size.
         # Transactions are now processed individually, so sizes are calculated per transaction.
-        tmp = findall(r'\[(.*Z) .* Sealed batch of (\d+) B containing (\d+) transactions', log)
         sizes = {}
-        # Store batch info for reference, but we'll calculate sizes from transaction count
-        for t, batch_size, tx_count in tmp:
-            sizes['batch'] = int(batch_size)
 
         # Parse sample transactions - now we track them by digest instead of batch
         # Sample transactions start with 0u8, so we can identify them

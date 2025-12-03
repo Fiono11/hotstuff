@@ -24,7 +24,7 @@ pub struct BatchMaker {
     /// The persistent storage.
     store: Store,
     /// Output channel to deliver sealed batches' digests directly to consensus.
-    tx_digest: Sender<Digest>,
+    tx_digest: Sender<Vec<Digest>>,
     /// Holds the current batch.
     current_batch: Batch,
     /// Holds the size of the current batch (in bytes).
@@ -37,7 +37,7 @@ impl BatchMaker {
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
         store: Store,
-        tx_digest: Sender<Digest>,
+        tx_digest: Sender<Vec<Digest>>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -85,13 +85,16 @@ impl BatchMaker {
         }
     }
 
-    /// Seal the current batch: store each transaction and send its digest.
+    /// Seal the current batch: store each transaction and send its digests as a batch.
     async fn seal(&mut self) {
         let size = self.current_batch_size;
         self.current_batch_size = 0;
 
         // Drain the current batch so we can process and store each transaction individually.
         let batch: Vec<_> = self.current_batch.drain(..).collect();
+
+        // Collect all digests for this batch.
+        let mut digests = Vec::with_capacity(batch.len());
 
         for tx in batch.iter() {
             // Hash each transaction.
@@ -103,11 +106,16 @@ impl BatchMaker {
             // NOTE: This log entry is used to compute performance.
             info!("Received tx {}", digest);
 
-            // Send the transaction's digest directly to consensus.
+            // Collect the digest for batch sending.
+            digests.push(digest);
+        }
+
+        // Send all digests as a batch to consensus.
+        if !digests.is_empty() {
             self.tx_digest
-                .send(digest)
+                .send(digests)
                 .await
-                .expect("Failed to deliver transaction digest to consensus");
+                .expect("Failed to deliver transaction digests to consensus");
         }
 
         // NOTE: This log entry is used to compute performance.

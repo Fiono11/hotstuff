@@ -22,7 +22,7 @@ impl Processor {
         // Input channel to receive batches.
         mut rx_batch: Receiver<SerializedBatchMessage>,
         // Output channel to send out batches' digests.
-        tx_digest: Sender<Digest>,
+        tx_digest: Sender<Vec<Digest>>,
     ) {
         tokio::spawn(async move {
             while let Some(batch) = rx_batch.recv().await {
@@ -32,7 +32,11 @@ impl Processor {
                 // Store the batch.
                 store.write(digest.to_vec(), batch).await;
 
-                tx_digest.send(digest).await.expect("Failed to send digest");
+                // Send as a batch (containing a single digest in this case).
+                tx_digest
+                    .send(vec![digest])
+                    .await
+                    .expect("Failed to send digest batch");
             }
         });
     }

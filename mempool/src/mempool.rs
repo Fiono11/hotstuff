@@ -49,8 +49,8 @@ pub struct Mempool {
     parameters: Parameters,
     /// The persistent storage.
     store: Store,
-    /// Send messages to consensus.
-    tx_consensus: Sender<Digest>,
+    /// Send batches of transaction digests to consensus.
+    tx_consensus: Sender<Vec<Digest>>,
 }
 
 impl Mempool {
@@ -60,7 +60,7 @@ impl Mempool {
         parameters: Parameters,
         store: Store,
         rx_consensus: Receiver<ConsensusMempoolMessage>,
-        tx_consensus: Sender<Digest>,
+        tx_consensus: Sender<Vec<Digest>>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();

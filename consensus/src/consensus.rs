@@ -2,7 +2,7 @@ use crate::config::{Committee, Parameters};
 use crate::core::Core;
 use crate::error::ConsensusError;
 use crate::helper::Helper;
-use crate::messages::{Block, Timeout, Vote, TC};
+use crate::messages::{Block, Vote};
 use async_trait::async_trait;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
@@ -29,8 +29,6 @@ pub type Round = u64;
 pub enum ConsensusMessage {
     Propose(Block),
     Vote(Vote),
-    Timeout(Timeout),
-    TC(TC),
     SyncRequest(Digest, PublicKey),
 }
 
@@ -44,7 +42,7 @@ impl Consensus {
         parameters: Parameters,
         signature_service: SignatureService,
         store: Store,
-        rx_mempool: Receiver<Digest>,
+        rx_mempool: Receiver<Vec<Digest>>,
         _tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Digest>,
     ) {

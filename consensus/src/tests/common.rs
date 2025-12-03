@@ -1,6 +1,6 @@
 use crate::config::Committee;
 use crate::consensus::Round;
-use crate::messages::{Block, Timeout, Vote, QC};
+use crate::messages::{Block, Vote, QC};
 use bytes::Bytes;
 use crypto::Hash as _;
 use crypto::{generate_keypair, Digest, PublicKey, SecretKey, Signature};
@@ -55,7 +55,6 @@ impl Block {
     ) -> Self {
         let block = Block {
             qc,
-            tc: None,
             author,
             round,
             payload,
@@ -73,10 +72,9 @@ impl PartialEq for Block {
 }
 
 impl Vote {
-    pub fn new_from_key(hash: Digest, round: Round, author: PublicKey, secret: &SecretKey) -> Self {
+    pub fn new_from_key(hash: Digest, _round: Round, author: PublicKey, secret: &SecretKey) -> Self {
         let vote = Self {
             hash,
-            round,
             author,
             signature: Signature::default(),
         };
@@ -91,27 +89,6 @@ impl PartialEq for Vote {
     }
 }
 
-impl Timeout {
-    pub fn new_from_key(high_qc: QC, round: Round, author: PublicKey, secret: &SecretKey) -> Self {
-        let timeout = Self {
-            high_qc,
-            round,
-            author,
-            signature: Signature::default(),
-        };
-        let signature = Signature::new(&timeout.digest(), &secret);
-        Self {
-            signature,
-            ..timeout
-        }
-    }
-}
-
-impl PartialEq for Timeout {
-    fn eq(&self, other: &Self) -> bool {
-        self.digest() == other.digest()
-    }
-}
 
 // Fixture.
 pub fn block() -> Block {
@@ -129,7 +106,6 @@ pub fn vote() -> Vote {
 pub fn qc() -> QC {
     let qc = QC {
         hash: Digest::default(),
-        round: 1,
         votes: Vec::new(),
     };
     let digest = qc.digest();
@@ -162,7 +138,6 @@ pub fn chain(keys: Vec<(PublicKey, SecretKey)>) -> Vec<Block> {
             // Make a qc for that block (it will be used for the next block).
             let qc = QC {
                 hash: block.digest(),
-                round: block.round,
                 votes: Vec::new(),
             };
             let digest = qc.digest();

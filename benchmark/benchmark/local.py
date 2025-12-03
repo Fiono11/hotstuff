@@ -75,20 +75,19 @@ class LocalBench:
             # Do not boot faulty nodes.
             nodes = nodes - self.faults
 
-            # Run the clients (they will wait for the nodes to be ready).
+            # Run a single client that sends all transactions to all nodes.
             addresses = committee.front
-            rate_share = ceil(rate / nodes)
             timeout = self.node_parameters.timeout_delay
-            client_logs = [PathMaker.client_log_file(i) for i in range(nodes)]
-            for addr, log_file in zip(addresses, client_logs):
-                cmd = CommandMaker.run_client(
-                    addr,
-                    self.tx_size,
-                    rate_share,
-                    timeout,
-                    #nodes=addresses
-                )
-                self._background_run(cmd, log_file)
+            # Use the first address as the target, but send to all nodes
+            target_addr = addresses[0]
+            cmd = CommandMaker.run_client(
+                target_addr,
+                self.tx_size,
+                rate,  # Use full rate since there's only one client
+                timeout,
+                nodes=addresses  # Send to all nodes
+            )
+            self._background_run(cmd, PathMaker.client_log_file(0))
 
             # Run the nodes.
             dbs = [PathMaker.db_path(i) for i in range(nodes)]

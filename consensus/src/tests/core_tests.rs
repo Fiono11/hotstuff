@@ -131,10 +131,9 @@ async fn generate_proposal() {
 
     // Ensure the core sends a new block.
     match rx_proposer.recv().await.unwrap() {
-        ProposerMessage::Make(round, qc, tc) => {
+        ProposerMessage::Make(round, qc) => {
             assert_eq!(round, 2);
             assert_eq!(qc, hight_qc);
-            assert!(tc.is_none());
         }
         _ => panic!("Unexpected protocol message"),
     }
@@ -168,25 +167,3 @@ async fn commit_block() {
     }
 }
 
-#[tokio::test]
-async fn local_timeout_round() {
-    let committee = committee_with_base_port(16_100);
-
-    // Make the timeout vote we expect to send.
-    let (public_key, secret_key) = leader_keys(3);
-    let timeout = Timeout::new_from_key(QC::genesis(), 1, public_key, &secret_key);
-    let expected = bincode::serialize(&ConsensusMessage::Timeout(timeout)).unwrap();
-
-    // Run a core instance.
-    let store_path = ".db_test_local_timeout_round";
-    let (_tx_core, _rx_proposer, _rx_commit) =
-        core(public_key, secret_key, committee.clone(), store_path);
-
-    // Ensure the node broadcasts a timeout vote.
-    let handles: Vec<_> = committee
-        .broadcast_addresses(&public_key)
-        .into_iter()
-        .map(|(_, address)| listener(address, Some(Bytes::from(expected.clone()))))
-        .collect();
-    assert!(try_join_all(handles).await.is_ok());
-}

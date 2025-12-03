@@ -1,6 +1,6 @@
 use crate::config::{Committee, Stake};
 use crate::consensus::{ConsensusMessage, Round};
-use crate::messages::{Block, QC, TC};
+use crate::messages::{Block, QC};
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
 pub enum ProposerMessage {
-    Make(Round, QC, Option<TC>),
+    Make(Round, QC),
     Cleanup(Vec<Digest>),
 }
 
@@ -58,11 +58,10 @@ impl Proposer {
         deliver
     }
 
-    async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
+    async fn make_block(&mut self, round: Round, qc: QC) {
         // Generate a new block.
         let block = Block::new(
             qc,
-            tc,
             self.name,
             round,
             /* payload */ self.buffer.drain().collect(),
@@ -130,7 +129,7 @@ impl Proposer {
                     //}
                 },
                 Some(message) = self.rx_message.recv() => match message {
-                    ProposerMessage::Make(round, qc, tc) => self.make_block(round, qc, tc).await,
+                    ProposerMessage::Make(round, qc) => self.make_block(round, qc).await,
                     ProposerMessage::Cleanup(digests) => {
                         for x in &digests {
                             self.buffer.remove(x);
