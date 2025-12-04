@@ -8,7 +8,6 @@ use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
-use rand::Rng;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -96,7 +95,7 @@ impl Client {
         // Submit all transactions.
         let mut tx = BytesMut::with_capacity(self.size);
         let mut total_sent = 0u64;
-        let mut r = rand::thread_rng().gen();
+        let mut r = 0u64;
 
         // NOTE: This log entry is used to compute performance.
         info!("Start sending transactions (total: {})", self.total_txs);
@@ -109,7 +108,7 @@ impl Client {
             let bytes = tx.split().freeze();
 
             // Calculate digest of the transaction
-            let digest = Digest(Sha512::digest(&bytes).as_ref()[..32].try_into().unwrap());
+            let digest = Digest(Sha512::digest(&bytes).as_slice()[..32].try_into().unwrap());
 
             // Log all transactions with digest
             info!("Sending transaction {} digest: {:?}", total_sent, digest);
