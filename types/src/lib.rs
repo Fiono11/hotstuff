@@ -240,7 +240,7 @@ impl Signature {
 
 /// Represents a transaction in the system.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Transaction2 {
+pub struct Transaction {
     /// The sender's public key.
     pub sender: PublicKey,
     /// The amount being transferred.
@@ -255,7 +255,7 @@ pub struct Transaction2 {
     pub signature: Signature,
 }
 
-impl Transaction2 {
+impl Transaction {
     /// Create a new transaction with all required fields.
     pub fn new(
         sender: PublicKey,
@@ -265,6 +265,49 @@ impl Transaction2 {
         epoch: EpochNumber,
         signature: Signature,
     ) -> Self {
+        Self {
+            sender,
+            amount,
+            receiver,
+            nonce,
+            epoch,
+            signature,
+        }
+    }
+
+    /// Create a digest of the transaction data (excluding signature) for signing purposes.
+    pub fn digest_for_signing(&self) -> Digest {
+        use ed25519_dalek::{Digest as _, Sha512};
+        use std::convert::TryInto;
+        let mut hasher = Sha512::new();
+        hasher.update(self.sender.0);
+        hasher.update(&self.amount.to_le_bytes());
+        hasher.update(self.receiver.0);
+        hasher.update(&self.nonce.to_le_bytes());
+        hasher.update(&self.epoch.to_le_bytes());
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
+    }
+
+    /// Create a new signed transaction from transaction data and a secret key.
+    pub fn new_signed(
+        sender: PublicKey,
+        amount: u128,
+        receiver: PublicKey,
+        nonce: u32,
+        epoch: EpochNumber,
+        secret: &SecretKey,
+    ) -> Self {
+        // Create a temporary transaction with a dummy signature to compute the digest
+        let temp_tx = Self {
+            sender,
+            amount,
+            receiver,
+            nonce,
+            epoch,
+            signature: Signature::default(),
+        };
+        let digest = temp_tx.digest_for_signing();
+        let signature = Signature::new(&digest, secret);
         Self {
             sender,
             amount,
@@ -298,8 +341,8 @@ impl Transaction2 {
 // Note: From<Vec<u8>> is removed because Transaction now requires additional fields
 // (sender, amount, receiver, nonce, epoch) that cannot be derived from bytes alone.
 
-impl From<Transaction2> for Vec<u8> {
-    fn from(tx: Transaction2) -> Self {
+impl From<Transaction> for Vec<u8> {
+    fn from(tx: Transaction) -> Self {
         tx.to_bytes()
     }
 }

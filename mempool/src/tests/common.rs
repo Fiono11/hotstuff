@@ -1,4 +1,4 @@
-use crate::batch_maker::{Batch, Transaction};
+use crate::batch_maker::Batch;
 use crate::config::Committee;
 use crate::mempool::MempoolMessage;
 use bytes::Bytes;
@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use types::{generate_keypair, Digest, PublicKey, SecretKey};
+use types::{generate_keypair, Digest, PublicKey, SecretKey, Transaction};
 
 // Fixture
 pub fn keys() -> Vec<(PublicKey, SecretKey)> {
@@ -53,7 +53,17 @@ pub fn committee_with_base_port(base_port: u16) -> Committee {
 
 // Fixture
 pub fn transaction() -> Transaction {
-    vec![0; 100]
+    let mut rng = StdRng::from_seed([0; 32]);
+    let (sender_pk, sender_sk) = generate_keypair(&mut rng);
+    let (receiver_pk, _) = generate_keypair(&mut rng);
+    Transaction::new_signed(
+        sender_pk,
+        1000,
+        receiver_pk,
+        1,
+        0, // epoch
+        &sender_sk,
+    )
 }
 
 // Fixture

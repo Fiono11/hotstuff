@@ -36,8 +36,10 @@ async fn make_batch() {
     let received_digests = rx_digest.recv().await.unwrap();
     assert_eq!(received_digests.len(), 2);
 
-    let expected_digest1 = Digest(Sha512::digest(&tx1).as_slice()[..32].try_into().unwrap());
-    let expected_digest2 = Digest(Sha512::digest(&tx2).as_slice()[..32].try_into().unwrap());
+    let tx1_bytes = tx1.to_bytes();
+    let tx2_bytes = tx2.to_bytes();
+    let expected_digest1 = Digest(Sha512::digest(&tx1_bytes).as_slice()[..32].try_into().unwrap());
+    let expected_digest2 = Digest(Sha512::digest(&tx2_bytes).as_slice()[..32].try_into().unwrap());
     assert_eq!(received_digests[0], expected_digest1);
     assert_eq!(received_digests[1], expected_digest2);
 }
@@ -69,6 +71,7 @@ async fn batch_timeout() {
     let received_digests = rx_digest.recv().await.unwrap();
     assert_eq!(received_digests.len(), 1);
 
-    let expected_digest1 = Digest(Sha512::digest(&tx1).as_slice()[..32].try_into().unwrap());
+    let tx1_bytes = tx1.to_bytes();
+    let expected_digest1 = Digest(Sha512::digest(&tx1_bytes).as_slice()[..32].try_into().unwrap());
     assert_eq!(received_digests[0], expected_digest1);
 }

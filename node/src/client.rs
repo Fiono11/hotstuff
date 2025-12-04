@@ -1,18 +1,15 @@
 use anyhow::{Context, Result};
-use bytes::BufMut as _;
-use bytes::BytesMut;
+use bytes;
 use clap::{ArgAction, Parser};
-use ed25519_dalek::{Digest as _, Sha512};
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
-use std::convert::TryInto;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use types::Digest;
+use types::{generate_production_keypair, Transaction};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = "Benchmark client for Rai nodes.")]
@@ -64,13 +61,6 @@ struct Client {
 
 impl Client {
     pub async fn send(&self) -> Result<()> {
-        // The transaction size must be at least 16 bytes to ensure all txs are different.
-        if self.size < 16 {
-            return Err(anyhow::Error::msg(
-                "Transaction size must be at least 9 bytes",
-            ));
-        }
-
         // Collect all target addresses (use nodes directly).
         let mut all_targets = self.nodes.clone();
         all_targets.sort();
@@ -87,31 +77,58 @@ impl Client {
         }
         info!("Connected to all {} nodes", transports.len());
 
+        // Generate keypairs for sender and receiver
+        let (sender_pk, sender_sk) = generate_production_keypair();
+        let (receiver_pk, _) = generate_production_keypair();
+
         // Submit all transactions.
-        let mut tx = BytesMut::with_capacity(self.size);
         let mut total_sent = 0u64;
-        let mut r = 0u64;
+        let mut nonce = 0u32;
 
         // NOTE: This log entry is used to compute performance.
         info!("Start sending transactions (total: {})", self.total_txs);
 
         while total_sent < self.total_txs {
-            r += 1;
-            tx.put_u8(1u8);
-            tx.put_u64(r); // Ensures all clients send different txs.
-            tx.resize(self.size, 0u8);
-            let bytes = tx.split().freeze();
+            nonce += 1;
+            
+            // Create a transaction with the desired size
+            // We'll adjust the amount to try to match the size, but the actual size
+            // will depend on the serialized transaction structure
+            let amount = if self.size > 100 {
+                // Use a larger amount to increase transaction size
+                (self.size as u128) * 1000
+            } else {
+                1000
+            };
+            
+            let transaction = Transaction::new_signed(
+                sender_pk,
+                amount,
+                receiver_pk,
+                nonce,
+                0, // epoch
+                &sender_sk,
+            );
 
-            // Calculate digest of the transaction
-            let digest = Digest(Sha512::digest(&bytes).as_slice()[..32].try_into().unwrap());
+            let bytes = transaction.to_bytes();
+            
+            // If the transaction is smaller than desired, we can't easily pad it
+            // since it's a structured type. The size will be determined by the
+            // actual transaction structure.
+            if bytes.len() < self.size {
+                warn!(
+                    "Transaction size {} is smaller than requested size {}. Actual size: {}",
+                    total_sent, self.size, bytes.len()
+                );
+            }
 
-            // Log all transactions with digest
-            info!("Sending transaction {} digest: {:?}", total_sent, digest);
+            // Log transaction info
+            info!("Sending transaction {} (nonce: {}, size: {} B)", total_sent, nonce, bytes.len());
 
             // Send transaction to all nodes in parallel.
             let send_futures: Vec<_> = transports
                 .iter_mut()
-                .map(|transport| transport.send(bytes.clone()))
+                .map(|transport| transport.send(bytes::Bytes::from(bytes.clone())))
                 .collect();
 
             let results = join_all(send_futures).await;

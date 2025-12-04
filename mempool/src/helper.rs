@@ -6,7 +6,7 @@ use log::{error, warn};
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::Receiver;
-use types::{Digest, PublicKey};
+use types::{Digest, PublicKey, Transaction};
 
 #[cfg(test)]
 #[path = "tests/helper_tests.rs"]
@@ -60,8 +60,20 @@ impl Helper {
             for digest in digests {
                 match self.store.read(digest.to_vec()).await {
                     Ok(Some(data)) => {
-                        // The data stored is the raw transaction bytes.
-                        batch.push(data);
+                        // Deserialize the stored transaction bytes into a Transaction struct.
+                        let config = bincode::config::standard();
+                        match bincode::serde::decode_from_slice(&data, config) {
+                            Ok((transaction, _)) => {
+                                let transaction: Transaction = transaction;
+                                batch.push(transaction);
+                            }
+                            Err(e) => {
+                                error!(
+                                    "Failed to deserialize transaction {} from store: {}",
+                                    digest, e
+                                );
+                            }
+                        }
                     }
                     Ok(None) => {
                         // Transaction not found in store, skip it.

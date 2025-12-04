@@ -4,13 +4,12 @@ use std::convert::TryInto as _;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
-use types::Digest;
+use types::{Digest, Transaction};
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]
 pub mod batch_maker_tests;
 
-pub type Transaction = Vec<u8>;
 pub type Batch = Vec<Transaction>;
 
 /// Assemble clients transactions into batches.
@@ -63,7 +62,7 @@ impl BatchMaker {
             tokio::select! {
                 // Assemble client transactions into batches of preset size.
                 Some(transaction) = self.rx_transaction.recv() => {
-                    self.current_batch_size += transaction.len();
+                    self.current_batch_size += transaction.to_bytes().len();
                     self.current_batch.push(transaction);
                     if self.current_batch_size >= self.batch_size {
                         self.seal().await;
@@ -98,10 +97,11 @@ impl BatchMaker {
 
         for tx in batch.iter() {
             // Hash each transaction.
-            let digest = Digest(Sha512::digest(&tx).as_slice()[..32].try_into().unwrap());
+            let tx_bytes = tx.to_bytes();
+            let digest = Digest(Sha512::digest(&tx_bytes).as_slice()[..32].try_into().unwrap());
 
             // Store the raw transaction bytes under its digest.
-            self.store.write(digest.to_vec(), tx.clone()).await;
+            self.store.write(digest.to_vec(), tx_bytes).await;
 
             // NOTE: This log entry is used to compute performance.
             info!("Received tx {}", digest);

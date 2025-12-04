@@ -1,4 +1,5 @@
-use crate::batch_maker::{Batch, BatchMaker, Transaction};
+use crate::batch_maker::{Batch, BatchMaker};
+use types::Transaction;
 use crate::config::{Committee, Parameters};
 use crate::helper::Helper;
 use crate::processor::Processor;
@@ -178,9 +179,15 @@ struct TxReceiverHandler {
 #[async_trait]
 impl MessageHandler for TxReceiverHandler {
     async fn dispatch(&self, _writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>> {
+        // Deserialize the transaction from bytes.
+        let config = bincode::config::standard();
+        let transaction: Transaction = bincode::serde::decode_from_slice(&message, config)
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)) as Box<dyn Error>)?
+            .0;
+        
         // Send the transaction to the batch maker.
         self.tx_batch_maker
-            .send(message.to_vec())
+            .send(transaction)
             .await
             .expect("Failed to send transaction");
 

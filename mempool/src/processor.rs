@@ -34,10 +34,11 @@ impl Processor {
                 let mut digests = Vec::with_capacity(batch.len());
                 for tx in batch.iter() {
                     // Hash each transaction.
-                    let digest = Digest(Sha512::digest(&tx).as_slice()[..32].try_into().unwrap());
+                    let tx_bytes = tx.to_bytes();
+                    let digest = Digest(Sha512::digest(&tx_bytes).as_slice()[..32].try_into().unwrap());
 
                     // Store the raw transaction bytes under its digest.
-                    store.write(digest.to_vec(), tx.clone()).await;
+                    store.write(digest.to_vec(), tx_bytes).await;
 
                     // NOTE: This log entry is used to compute performance.
                     info!("Received tx {}", digest);

@@ -1,5 +1,6 @@
 use super::*;
 use crate::common::{committee_with_base_port, keys, listener, transaction};
+use bytes::Bytes;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use network::SimpleSender;
@@ -42,18 +43,21 @@ async fn handle_clients_transactions() {
     // Send enough transactions to create a batch.
     let mut network = SimpleSender::new();
     let address = committee.transactions_address(&name).unwrap();
-    network.send(address, Bytes::from(transaction())).await;
-    network.send(address, Bytes::from(transaction())).await;
+    let tx1 = transaction();
+    let tx2 = transaction();
+    let config = bincode::config::standard();
+    network.send(address, Bytes::from(bincode::serde::encode_to_vec(&tx1, config).unwrap())).await;
+    network.send(address, Bytes::from(bincode::serde::encode_to_vec(&tx2, config).unwrap())).await;
 
     // Ensure the consensus got the batch digests.
     let received_digests = rx_mempool_to_consensus.recv().await.unwrap();
     assert_eq!(received_digests.len(), 2);
 
     // Verify each digest matches the expected transaction digest.
-    let tx1 = transaction();
-    let tx2 = transaction();
-    let expected_digest1 = Digest(Sha512::digest(&tx1).as_slice()[..32].try_into().unwrap());
-    let expected_digest2 = Digest(Sha512::digest(&tx2).as_slice()[..32].try_into().unwrap());
+    let tx1_bytes = tx1.to_bytes();
+    let tx2_bytes = tx2.to_bytes();
+    let expected_digest1 = Digest(Sha512::digest(&tx1_bytes).as_slice()[..32].try_into().unwrap());
+    let expected_digest2 = Digest(Sha512::digest(&tx2_bytes).as_slice()[..32].try_into().unwrap());
     assert_eq!(received_digests[0], expected_digest1);
     assert_eq!(received_digests[1], expected_digest2);
 }

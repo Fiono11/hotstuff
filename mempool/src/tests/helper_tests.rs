@@ -21,8 +21,9 @@ async fn batch_reply() {
     let test_batch = batch();
     let mut digests = Vec::new();
     for tx in &test_batch {
-        let digest = Digest(Sha512::digest(tx).as_slice()[..32].try_into().unwrap());
-        store.write(digest.to_vec(), tx.clone()).await;
+        let tx_bytes = tx.to_bytes();
+        let digest = Digest(Sha512::digest(&tx_bytes).as_slice()[..32].try_into().unwrap());
+        store.write(digest.to_vec(), tx_bytes).await;
         digests.push(digest);
     }
 
