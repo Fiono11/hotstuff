@@ -4,12 +4,12 @@ use crate::consensus::ConsensusMessage;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::Vote;
 use bytes::Bytes;
-use types::{Digest, PublicKey, SignatureService};
 use log::{debug, error, info, warn};
 use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use types::{Digest, PublicKey, SignatureService};
 
 pub struct Core {
     name: PublicKey,
@@ -65,27 +65,12 @@ impl Core {
         // Ensure the vote is well formed.
         vote.verify(&self.committee)?;
 
-        // Check if we have all transactions referenced in the vote.
-        // Check each digest in the payload.
-        let mut missing = Vec::new();
-        for digest in &vote.payload {
-            if self.store.read(digest.to_vec()).await?.is_none() {
-                missing.push(digest.clone());
-            }
-        }
+        // Save the vote author before processing (vote gets consumed by aggregator).
+        let vote_author = vote.author;
 
-        // If we're missing transactions, request them from the voter via mempool.
-        if !missing.is_empty() {
-            debug!(
-                "Missing {} transactions from vote by {}, requesting from mempool",
-                missing.len(),
-                vote.author
-            );
-            let message = ConsensusMempoolMessage::Synchronize(missing, vote.author);
-            if let Err(e) = self.tx_mempool.send(message).await {
-                warn!("Failed to send sync message to mempool: {}", e);
-            }
-        }
+        // Process the vote first to determine which transactions reach quorum.
+        // Only request transactions that are confirmed (reach quorum) and we don't have.
+        let mut confirmed_missing = Vec::new();
 
         // Process the vote: if it has multiple digests, use batch vote handler;
         // if it has one digest, use single vote handler.
@@ -96,6 +81,11 @@ impl Core {
             for (digest, qc_opt) in results {
                 if let Some(qc) = qc_opt {
                     debug!("Assembled {:?}", qc);
+
+                    // Check if we have this confirmed transaction.
+                    if self.store.read(digest.to_vec()).await?.is_none() {
+                        confirmed_missing.push(digest.clone());
+                    }
 
                     // Notify the application layer of the committed transaction digest.
                     info!("Committed tx {}", digest);
@@ -113,8 +103,13 @@ impl Core {
             if let Some(qc) = self.aggregator.add_vote(vote)? {
                 debug!("Assembled {:?}", qc);
 
-                // Notify the application layer of the committed transaction digest.
                 let digest = qc.hash.clone();
+                // Check if we have this confirmed transaction.
+                if self.store.read(digest.to_vec()).await?.is_none() {
+                    confirmed_missing.push(digest.clone());
+                }
+
+                // Notify the application layer of the committed transaction digest.
                 info!("Committed tx {}", digest);
                 if let Err(e) = self.tx_commit.send(digest.clone()).await {
                     warn!("Failed to send digest through the commit channel: {}", e);
@@ -122,6 +117,19 @@ impl Core {
 
                 // Clean up the aggregator after the transaction is committed.
                 self.aggregator.cleanup(&digest);
+            }
+        }
+
+        // Only request transactions that are confirmed (reach quorum) and we don't have.
+        if !confirmed_missing.is_empty() {
+            debug!(
+                "Missing {} confirmed transactions from vote by {}, requesting from mempool",
+                confirmed_missing.len(),
+                vote_author
+            );
+            let message = ConsensusMempoolMessage::Synchronize(confirmed_missing, vote_author);
+            if let Err(e) = self.tx_mempool.send(message).await {
+                warn!("Failed to send sync message to mempool: {}", e);
             }
         }
         Ok(())

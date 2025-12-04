@@ -98,7 +98,11 @@ impl BatchMaker {
         for tx in batch.iter() {
             // Hash each transaction.
             let tx_bytes = tx.to_bytes();
-            let digest = Digest(Sha512::digest(&tx_bytes).as_slice()[..32].try_into().unwrap());
+            let digest = Digest(
+                Sha512::digest(&tx_bytes).as_slice()[..32]
+                    .try_into()
+                    .unwrap(),
+            );
 
             // Store the raw transaction bytes under its digest.
             self.store.write(digest.to_vec(), tx_bytes).await;
