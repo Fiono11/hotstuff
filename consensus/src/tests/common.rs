@@ -73,10 +73,11 @@ impl PartialEq for Block {
 
 impl Vote {
     pub fn new_from_key(hash: Digest, _round: Round, author: PublicKey, secret: &SecretKey) -> Self {
+        // For single transaction votes, payload contains exactly one digest.
         let vote = Self {
-            hash,
             author,
             signature: Signature::default(),
+            payload: vec![hash],
         };
         let signature = Signature::new(&vote.digest(), &secret);
         Self { signature, ..vote }

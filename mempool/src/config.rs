@@ -6,8 +6,6 @@ use std::net::SocketAddr;
 
 #[derive(Deserialize, Serialize)]
 pub struct Parameters {
-    /// The depth of the garbage collection (Denominated in number of rounds).
-    pub gc_depth: u64,
     /// The delay after which the synchronizer retries to send sync requests. Denominated in ms.
     pub sync_retry_delay: u64,
     /// Determine with how many nodes to sync when re-trying to send sync-request. These nodes
@@ -24,7 +22,6 @@ pub struct Parameters {
 impl Default for Parameters {
     fn default() -> Self {
         Self {
-            gc_depth: 50,
             sync_retry_delay: 5_000,
             sync_retry_nodes: 3,
             batch_size: 500_000,
@@ -36,7 +33,6 @@ impl Default for Parameters {
 impl Parameters {
     pub fn log(&self) {
         // NOTE: These log entries are used to compute performance.
-        info!("Garbage collection depth set to {} rounds", self.gc_depth);
         info!("Sync retry delay set to {} ms", self.sync_retry_delay);
         info!("Sync retry nodes set to {} nodes", self.sync_retry_nodes);
         info!("Batch size set to {} B", self.batch_size);

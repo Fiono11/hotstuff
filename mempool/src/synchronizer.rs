@@ -27,8 +27,6 @@ pub struct Synchronizer {
     committee: Committee,
     // The persistent storage.
     store: Store,
-    /// The depth of the garbage collection.
-    gc_depth: Round,
     /// The delay to wait before re-trying to send sync requests.
     sync_retry_delay: u64,
     /// Determine with how many nodes to sync when re-trying to send sync-requests. These nodes
@@ -52,7 +50,6 @@ impl Synchronizer {
         name: PublicKey,
         committee: Committee,
         store: Store,
-        gc_depth: Round,
         sync_retry_delay: u64,
         sync_retry_nodes: usize,
         rx_message: Receiver<ConsensusMempoolMessage>,
@@ -62,7 +59,6 @@ impl Synchronizer {
                 name,
                 committee,
                 store,
-                gc_depth,
                 sync_retry_delay,
                 sync_retry_nodes,
                 rx_message,
@@ -137,23 +133,6 @@ impl Synchronizer {
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
-                    ConsensusMempoolMessage::Cleanup(round) => {
-                        // Keep track of the consensus' round number.
-                        self.round = round;
-
-                        // Cleanup internal state.
-                        if self.round < self.gc_depth {
-                            continue;
-                        }
-
-                        let mut gc_round = self.round - self.gc_depth;
-                        for (r, handler, _) in self.pending.values() {
-                            if r <= &gc_round {
-                                let _ = handler.send(()).await;
-                            }
-                        }
-                        self.pending.retain(|_, (r, _, _)| r > &mut gc_round);
-                    }
                 },
 
                 // Stream out the futures of the `FuturesUnordered` that completed.

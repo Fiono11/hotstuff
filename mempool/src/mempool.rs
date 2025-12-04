@@ -34,10 +34,8 @@ pub enum MempoolMessage {
 /// The messages sent by the consensus and the mempool.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConsensusMempoolMessage {
-    /// The consensus notifies the mempool that it need to sync the target missing batches.
+    /// The consensus notifies the mempool that it need to sync the target missing transactions.
     Synchronize(Vec<Digest>, /* target */ PublicKey),
-    /// The consensus notifies the mempool of a round update.
-    Cleanup(Round),
 }
 
 pub struct Mempool {
@@ -97,7 +95,6 @@ impl Mempool {
             self.name,
             self.committee.clone(),
             self.store.clone(),
-            self.parameters.gc_depth,
             self.parameters.sync_retry_delay,
             self.parameters.sync_retry_nodes,
             /* rx_message */ rx_consensus,

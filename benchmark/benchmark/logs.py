@@ -135,9 +135,6 @@ class LogParser:
                 ),
             },
             'mempool': {
-                'gc_depth': int(
-                    search(r'Garbage collection .* (\d+)', log).group(1)
-                ),
                 'sync_retry_delay': int(
                     search(r'mempool.* Sync retry delay .* (\d+)', log).group(1)
                 ),
@@ -213,7 +210,6 @@ class LogParser:
 
         consensus_timeout_delay = self.configs[0]['consensus']['timeout_delay']
         consensus_sync_retry_delay = self.configs[0]['consensus']['sync_retry_delay']
-        mempool_gc_depth = self.configs[0]['mempool']['gc_depth']
         mempool_sync_retry_delay = self.configs[0]['mempool']['sync_retry_delay']
         mempool_sync_retry_nodes = self.configs[0]['mempool']['sync_retry_nodes']
         mempool_batch_size = self.configs[0]['mempool']['batch_size']
@@ -233,7 +229,6 @@ class LogParser:
             '\n'
             f' Consensus timeout delay: {consensus_timeout_delay:,} ms\n'
             f' Consensus sync retry delay: {consensus_sync_retry_delay:,} ms\n'
-            f' Mempool GC depth: {mempool_gc_depth:,} rounds\n'
             f' Mempool sync retry delay: {mempool_sync_retry_delay:,} ms\n'
             f' Mempool sync retry nodes: {mempool_sync_retry_nodes:,} nodes\n'
             f' Mempool batch size: {mempool_batch_size:,} B\n'

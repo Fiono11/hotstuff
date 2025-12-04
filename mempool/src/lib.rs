@@ -3,7 +3,6 @@ mod config;
 mod helper;
 mod mempool;
 mod processor;
-mod quorum_waiter;
 mod synchronizer;
 
 #[cfg(test)]

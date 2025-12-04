@@ -103,25 +103,24 @@ impl fmt::Display for Block {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
-    pub hash: Digest,
     pub author: PublicKey,
     pub signature: Signature,
-    /// Payload containing transaction digests (for batch votes).
-    /// If empty, the vote is for a single transaction represented by `hash`.
+    /// Payload containing transaction digests.
+    /// For single transaction votes, payload contains exactly one digest.
+    /// For batch votes, payload contains multiple digests.
     pub payload: Vec<Digest>,
 }
 
 impl Vote {
     pub async fn new(
-        block: &Block,
+        digests: Vec<Digest>,
         author: PublicKey,
         mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
-            hash: block.digest(),
             author,
             signature: Signature::default(),
-            payload: Vec::new(),
+            payload: digests,
         };
         let signature = signature_service.request_signature(vote.digest()).await;
         Self { signature, ..vote }
@@ -143,12 +142,10 @@ impl Vote {
 impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.hash);
-        // Include payload in hash if present (for batch votes).
-        if !self.payload.is_empty() {
-            for digest in &self.payload {
-                hasher.update(digest);
-            }
+        hasher.update(self.author.0);
+        // Include payload in hash (for batch votes).
+        for digest in &self.payload {
+            hasher.update(digest);
         }
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
@@ -156,7 +153,7 @@ impl Hash for Vote {
 
 impl fmt::Debug for Vote {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "V({}, {})", self.author, self.hash)
+        write!(f, "V({}, {:?})", self.author, self.payload)
     }
 }
 

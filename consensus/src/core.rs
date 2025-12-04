@@ -4,13 +4,10 @@ use crate::consensus::ConsensusMessage;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::Vote;
 use bytes::Bytes;
-use crypto::Hash as _;
-use crypto::{Digest, PublicKey, Signature, SignatureService};
-use ed25519_dalek::{Digest as _, Sha512};
+use crypto::{Digest, PublicKey, SignatureService};
 use log::{debug, error, info, warn};
 use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;
-use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -73,20 +70,11 @@ impl Core {
         vote.verify(&self.committee)?;
 
         // Check if we have all transactions referenced in the vote.
-        // If the vote has a payload, check each digest in the payload.
-        // If the vote has no payload, check the vote's hash itself.
+        // Check each digest in the payload.
         let mut missing = Vec::new();
-        if !vote.payload.is_empty() {
-            // Check each digest in the payload.
-            for digest in &vote.payload {
-                if self.store.read(digest.to_vec()).await?.is_none() {
-                    missing.push(digest.clone());
-                }
-            }
-        } else {
-            // Single transaction vote: check the vote's hash.
-            if self.store.read(vote.hash.to_vec()).await?.is_none() {
-                missing.push(vote.hash.clone());
+        for digest in &vote.payload {
+            if self.store.read(digest.to_vec()).await?.is_none() {
+                missing.push(digest.clone());
             }
         }
 
@@ -103,11 +91,11 @@ impl Core {
             }
         }
 
-        // If the vote has a payload (batch vote), extract each digest and vote for it individually
-        // (quorum is computed per transaction).
-        if !vote.payload.is_empty() {
-            // Use the aggregator's batch vote handler to process all digests.
-            // The batch vote signature has already been verified above.
+        // Process the vote: if it has multiple digests, use batch vote handler;
+        // if it has one digest, use single vote handler.
+        if vote.payload.len() > 1 {
+            // Batch vote: extract each digest and vote for it individually
+            // (quorum is computed per transaction).
             let results = self.aggregator.add_batch_vote(vote)?;
             for (digest, qc_opt) in results {
                 if let Some(qc) = qc_opt {
@@ -121,7 +109,7 @@ impl Core {
                 }
             }
         } else {
-            // Single transaction vote (no payload).
+            // Single transaction vote (payload contains one digest).
             // Add the new vote to our aggregator and see if we have a quorum.
             if let Some(qc) = self.aggregator.add_vote(vote)? {
                 debug!("Assembled {:?}", qc);
@@ -145,26 +133,9 @@ impl Core {
             return Ok(());
         }
 
-        // Compute hash of all digests (similar to how Block hashes its payload).
-        let mut hasher = Sha512::new();
-        for digest in &digests {
-            hasher.update(digest);
-        }
-        let batch_hash = Digest(hasher.finalize().as_slice()[..32].try_into().unwrap());
-
         // Create a single vote containing all digests in the payload.
-        let base_vote = Vote {
-            hash: batch_hash,
-            author: self.name,
-            signature: Signature::default(),
-            payload: digests.clone(),
-        };
-        let mut sig_service = self.signature_service.clone();
-        let signature = sig_service.request_signature(base_vote.digest()).await;
-        let vote = Vote {
-            signature,
-            ..base_vote
-        };
+        let sig_service = self.signature_service.clone();
+        let vote = Vote::new(digests.clone(), self.name, sig_service).await;
 
         // Process the batch vote locally: add our vote for each digest in the batch.
         // The aggregator will handle adding the author and signature for each digest

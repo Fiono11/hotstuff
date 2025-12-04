@@ -1,5 +1,4 @@
 use crate::config::{Committee, Stake};
-use crate::consensus::Round;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{Vote, QC};
 use crypto::{Digest, PublicKey, Signature};
@@ -26,9 +25,14 @@ impl Aggregator {
         // TODO [issue #7]: A bad node may make us run out of memory by sending many votes
         // with different digests.
 
+        // For single transaction votes, payload should contain exactly one digest.
+        // Extract the transaction digest from the payload.
+        ensure!(vote.payload.len() == 1, ConsensusError::InvalidPayload);
+        let digest = vote.payload[0].clone();
+
         // Add the new vote to our aggregator and see if we have a QC.
         self.votes_aggregators
-            .entry(vote.hash.clone())
+            .entry(digest)
             .or_insert_with(|| Box::new(QCMaker::new()))
             .append(vote, &self.committee)
     }
@@ -63,10 +67,6 @@ impl Aggregator {
 
         Ok(results)
     }
-
-    pub fn cleanup(&mut self, _round: &Round) {
-        // Note: cleanup is no longer needed for votes since they're organized by digest only.
-    }
 }
 
 struct QCMaker {
@@ -86,7 +86,9 @@ impl QCMaker {
 
     /// Try to append a signature to a (partial) quorum.
     pub fn append(&mut self, vote: Vote, committee: &Committee) -> ConsensusResult<Option<QC>> {
-        self.append_author_signature(vote.hash, vote.author, vote.signature, committee)
+        // For single transaction votes, payload contains exactly one digest.
+        let digest = vote.payload[0].clone();
+        self.append_author_signature(digest, vote.author, vote.signature, committee)
     }
 
     /// Append an author's signature directly to the quorum tracker.
