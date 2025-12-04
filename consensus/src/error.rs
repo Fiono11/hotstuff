@@ -27,7 +27,7 @@ pub enum ConsensusError {
     NetworkError(#[from] std::io::Error),
 
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] Box<bincode::ErrorKind>),
+    SerializationError(#[from] bincode::error::DecodeError),
 
     #[error("Store error: {0}")]
     StoreError(#[from] StoreError),

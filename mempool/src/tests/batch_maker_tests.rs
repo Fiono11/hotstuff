@@ -24,7 +24,8 @@ async fn make_batch() {
     // Ensure the batch is as expected.
     let expected_batch = vec![transaction(), transaction()];
     let QuorumWaiterMessage { batch, handlers: _ } = rx_message.recv().await.unwrap();
-    match bincode::deserialize(&batch).unwrap() {
+    let config = bincode::config::standard();
+    match bincode::serde::decode_from_slice(&batch, config).unwrap().0 {
         MempoolMessage::Batch(batch) => assert_eq!(batch, expected_batch),
         _ => panic!("Unexpected message"),
     }
@@ -51,7 +52,8 @@ async fn batch_timeout() {
     // Ensure the batch is as expected.
     let expected_batch = vec![transaction()];
     let QuorumWaiterMessage { batch, handlers: _ } = rx_message.recv().await.unwrap();
-    match bincode::deserialize(&batch).unwrap() {
+    let config = bincode::config::standard();
+    match bincode::serde::decode_from_slice(&batch, config).unwrap().0 {
         MempoolMessage::Batch(batch) => assert_eq!(batch, expected_batch),
         _ => panic!("Unexpected message"),
     }

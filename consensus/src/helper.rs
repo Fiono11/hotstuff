@@ -57,9 +57,10 @@ impl Helper {
                 .await
                 .expect("Failed to read from storage")
             {
-                let block =
-                    bincode::deserialize(&bytes).expect("Failed to deserialize our own block");
-                let message = bincode::serialize(&ConsensusMessage::Propose(block))
+                let config = bincode::config::standard();
+                let (block, _) = bincode::serde::decode_from_slice(&bytes, config)
+                    .expect("Failed to deserialize our own block");
+                let message = bincode::serde::encode_to_vec(&ConsensusMessage::Propose(block), config)
                     .expect("Failed to serialize block");
                 self.network.send(address, Bytes::from(message)).await;
             }

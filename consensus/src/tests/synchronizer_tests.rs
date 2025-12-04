@@ -13,7 +13,8 @@ async fn get_existing_parent_block() {
     let _ = fs::remove_dir_all(path);
     let mut store = Store::new(path).unwrap();
     let key = b2.digest().to_vec();
-    let value = bincode::serialize(&b2).unwrap();
+    let config = bincode::config::standard();
+    let value = bincode::serde::encode_to_vec(&b2, config).unwrap();
     let _ = store.write(key, value).await;
 
     // Make a new synchronizer.
@@ -81,7 +82,8 @@ async fn get_missing_parent_block() {
     // Spawn a listener to receive our sync request.
     let address = committee.address(&block.author).unwrap();
     let message = ConsensusMessage::SyncRequest(parent_block.digest(), name);
-    let expected = Bytes::from(bincode::serialize(&message).unwrap());
+    let config = bincode::config::standard();
+    let expected = Bytes::from(bincode::serde::encode_to_vec(&message, config).unwrap());
     let listener_handle = listener(address, Some(expected.clone()));
 
     // Ask for the parent of a block to the synchronizer. The store does not have the parent yet.
@@ -100,7 +102,8 @@ async fn get_missing_parent_block() {
 
     // Add the parent to the store.
     let key = parent_block.digest().to_vec();
-    let value = bincode::serialize(&parent_block).unwrap();
+    let config = bincode::config::standard();
+    let value = bincode::serde::encode_to_vec(&parent_block, config).unwrap();
     let _ = store.write(key, value).await;
 
     // Now that we have the parent, ensure the synchronizer loops back the block to the core

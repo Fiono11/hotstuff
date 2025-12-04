@@ -17,7 +17,8 @@ async fn sync_reply() {
 
     // Add a batch to the store.
     let digest = block().digest();
-    let serialized = bincode::serialize(&block()).unwrap();
+    let config = bincode::config::standard();
+    let serialized = bincode::serde::encode_to_vec(&block(), config).unwrap();
     store.write(digest.to_vec(), serialized.clone()).await;
 
     // Spawn an `Helper` instance.
@@ -26,7 +27,7 @@ async fn sync_reply() {
     // Spawn a listener to receive the sync reply.
     let address = committee.address(&requestor).unwrap();
     let message = ConsensusMessage::Propose(block());
-    let expected = Bytes::from(bincode::serialize(&message).unwrap());
+    let expected = Bytes::from(bincode::serde::encode_to_vec(&message, config).unwrap());
     let handle = listener(address, Some(expected));
 
     // Send a sync request.

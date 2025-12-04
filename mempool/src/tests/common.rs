@@ -64,7 +64,8 @@ pub fn batch() -> Batch {
 // Fixture
 pub fn serialized_batch() -> Vec<u8> {
     let message = MempoolMessage::Batch(batch());
-    bincode::serialize(&message).unwrap()
+    let config = bincode::config::standard();
+    bincode::serde::encode_to_vec(&message, config).unwrap()
 }
 
 // Fixture

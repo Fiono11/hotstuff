@@ -165,8 +165,9 @@ impl Core {
             .into_iter()
             .map(|(_, x)| x)
             .collect();
-        let message =
-            bincode::serialize(&ConsensusMessage::Vote(vote)).expect("Failed to serialize vote");
+        let config = bincode::config::standard();
+        let message = bincode::serde::encode_to_vec(&ConsensusMessage::Vote(vote), config)
+            .expect("Failed to serialize vote");
         self.network
             .broadcast(addresses, Bytes::from(message))
             .await;

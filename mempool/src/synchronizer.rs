@@ -130,7 +130,8 @@ impl Synchronizer {
                             }
                         };
                         let message = MempoolMessage::BatchRequest(digests, self.name);
-                        let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
+                        let config = bincode::config::standard();
+                        let serialized = bincode::serde::encode_to_vec(&message, config).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
                 },
@@ -171,7 +172,8 @@ impl Synchronizer {
                             .map(|(_, address)| *address)
                             .collect();
                         let message = MempoolMessage::BatchRequest(retry, self.name);
-                        let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
+                        let config = bincode::config::standard();
+                        let serialized = bincode::serde::encode_to_vec(&message, config).expect("Failed to serialize our own message");
                         self.network
                             .lucky_broadcast(addresses, Bytes::from(serialized), self.sync_retry_nodes)
                             .await;

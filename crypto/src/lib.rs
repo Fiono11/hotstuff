@@ -1,4 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use ed25519_dalek as dalek;
 use ed25519_dalek::ed25519;
 use ed25519_dalek::Signer as _;
@@ -33,13 +35,13 @@ impl Digest {
 
 impl fmt::Debug for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", base64::encode(&self.0))
+        write!(f, "{}", STANDARD.encode(&self.0))
     }
 }
 
 impl fmt::Display for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", base64::encode(&self.0).get(0..16).unwrap())
+        write!(f, "{}", STANDARD.encode(&self.0).get(0..16).unwrap())
     }
 }
 
@@ -67,14 +69,17 @@ pub struct PublicKey(pub [u8; 32]);
 
 impl PublicKey {
     pub fn encode_base64(&self) -> String {
-        base64::encode(&self.0[..])
+        STANDARD.encode(&self.0[..])
     }
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
-        let bytes = base64::decode(s)?;
+        let bytes = STANDARD.decode(s)?;
+        if bytes.len() != 32 {
+            return Err(base64::DecodeError::InvalidLength(bytes.len()));
+        }
         let array = bytes[..32]
             .try_into()
-            .map_err(|_| base64::DecodeError::InvalidLength)?;
+            .map_err(|_| base64::DecodeError::InvalidLength(bytes.len()))?;
         Ok(Self(array))
     }
 }
@@ -122,14 +127,17 @@ pub struct SecretKey([u8; 64]);
 
 impl SecretKey {
     pub fn encode_base64(&self) -> String {
-        base64::encode(&self.0[..])
+        STANDARD.encode(&self.0[..])
     }
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
-        let bytes = base64::decode(s)?;
+        let bytes = STANDARD.decode(s)?;
+        if bytes.len() != 64 {
+            return Err(base64::DecodeError::InvalidLength(bytes.len()));
+        }
         let array = bytes[..64]
             .try_into()
-            .map_err(|_| base64::DecodeError::InvalidLength)?;
+            .map_err(|_| base64::DecodeError::InvalidLength(bytes.len()))?;
         Ok(Self(array))
     }
 }

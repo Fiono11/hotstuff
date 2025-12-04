@@ -32,7 +32,8 @@ async fn synchronize() {
     let address = committee.mempool_address(&target).unwrap();
     let missing = vec![batch_digest()];
     let message = MempoolMessage::BatchRequest(missing.clone(), name);
-    let serialized = bincode::serialize(&message).unwrap();
+    let config = bincode::config::standard();
+    let serialized = bincode::serde::encode_to_vec(&message, config).unwrap();
     let handle = listener(address, Some(Bytes::from(serialized)));
 
     // Send a sync request.

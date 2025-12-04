@@ -19,7 +19,8 @@ async fn hash_and_store() {
 
     // Send a batch to the `Processor`.
     let message = MempoolMessage::Batch(batch());
-    let serialized = bincode::serialize(&message).unwrap();
+    let config = bincode::config::standard();
+    let serialized = bincode::serde::encode_to_vec(&message, config).unwrap();
     tx_batch.send(serialized.clone()).await.unwrap();
 
     // Ensure the `Processor` outputs the batch's digest.

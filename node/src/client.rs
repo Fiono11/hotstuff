@@ -109,7 +109,7 @@ impl Client {
             let bytes = tx.split().freeze();
 
             // Calculate digest of the transaction
-            let digest = Digest(Sha512::digest(&bytes).as_slice()[..32].try_into().unwrap());
+            let digest = Digest(Sha512::digest(&bytes).as_ref()[..32].try_into().unwrap());
 
             // Log all transactions with digest
             info!("Sending transaction {} digest: {:?}", total_sent, digest);

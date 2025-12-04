@@ -98,7 +98,10 @@ struct ConsensusReceiverHandler {
 impl MessageHandler for ConsensusReceiverHandler {
     async fn dispatch(&self, writer: &mut Writer, serialized: Bytes) -> Result<(), Box<dyn Error>> {
         // Deserialize and parse the message.
-        match bincode::deserialize(&serialized).map_err(ConsensusError::SerializationError)? {
+        let config = bincode::config::standard();
+        match bincode::serde::decode_from_slice(&serialized, config)
+            .map(|(msg, _)| msg)
+            .map_err(ConsensusError::SerializationError)? {
             ConsensusMessage::SyncRequest(missing, origin) => self
                 .tx_helper
                 .send((missing, origin))

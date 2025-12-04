@@ -204,17 +204,20 @@ impl MessageHandler for MempoolReceiverHandler {
         let _ = writer.send(Bytes::from("Ack")).await;
 
         // Deserialize and parse the message.
-        match bincode::deserialize(&serialized) {
-            Ok(MempoolMessage::Batch(batch)) => self
-                .tx_processor
-                .send(batch)
-                .await
-                .expect("Failed to send batch"),
-            Ok(MempoolMessage::BatchRequest(missing, requestor)) => self
-                .tx_helper
-                .send((missing, requestor))
-                .await
-                .expect("Failed to send batch request"),
+        let config = bincode::config::standard();
+        match bincode::serde::decode_from_slice(&serialized, config) {
+            Ok((message, _)) => match message {
+                MempoolMessage::Batch(batch) => self
+                    .tx_processor
+                    .send(batch)
+                    .await
+                    .expect("Failed to send batch"),
+                MempoolMessage::BatchRequest(missing, requestor) => self
+                    .tx_helper
+                    .send((missing, requestor))
+                    .await
+                    .expect("Failed to send batch request"),
+            },
             Err(e) => warn!("Serialization error: {}", e),
         }
         Ok(())

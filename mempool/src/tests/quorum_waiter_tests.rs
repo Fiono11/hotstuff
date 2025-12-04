@@ -18,7 +18,8 @@ async fn wait_for_quorum() {
 
     // Make a batch.
     let message = MempoolMessage::Batch(batch());
-    let serialized = bincode::serialize(&message).unwrap();
+    let config = bincode::config::standard();
+    let serialized = bincode::serde::encode_to_vec(&message, config).unwrap();
     let expected = Bytes::from(serialized.clone());
 
     // Spawn enough listeners to acknowledge our batches.

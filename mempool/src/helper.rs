@@ -75,7 +75,8 @@ impl Helper {
             // Send the batch as a MempoolMessage::Batch if we have any transactions.
             if !batch.is_empty() {
                 let message = MempoolMessage::Batch(batch);
-                match bincode::serialize(&message) {
+                let config = bincode::config::standard();
+                match bincode::serde::encode_to_vec(&message, config) {
                     Ok(serialized) => {
                         self.network.send(address, Bytes::from(serialized)).await;
                     }

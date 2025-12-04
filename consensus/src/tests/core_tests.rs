@@ -75,7 +75,8 @@ async fn handle_proposal() {
     let block = chain(vec![leader_keys(1)]).pop().unwrap();
     let (public_key, secret_key) = keys().pop().unwrap();
     let vote = Vote::new_from_key(block.digest(), block.round, public_key, &secret_key);
-    let expected = bincode::serialize(&ConsensusMessage::Vote(vote)).unwrap();
+    let config = bincode::config::standard();
+    let expected = bincode::serde::encode_to_vec(&ConsensusMessage::Vote(vote), config).unwrap();
 
     // Run a core instance.
     let store_path = ".db_test_handle_proposal";

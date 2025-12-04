@@ -17,7 +17,8 @@ impl MessageHandler for TestHandler {
         let _ = writer.send(Bytes::from("Ack")).await;
 
         // Deserialize the message.
-        let message = bincode::deserialize(&message).unwrap();
+        let config = bincode::config::standard();
+        let (message, _) = bincode::serde::decode_from_slice(&message, config).unwrap();
 
         // Deliver the message to the application.
         self.deliver.send(message).await.unwrap();
@@ -35,7 +36,8 @@ async fn receive() {
 
     // Send a message.
     let sent = "Hello, world!";
-    let bytes = Bytes::from(bincode::serialize(sent).unwrap());
+    let config = bincode::config::standard();
+    let bytes = Bytes::from(bincode::serde::encode_to_vec(sent, config).unwrap());
     let stream = TcpStream::connect(address).await.unwrap();
     let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
     transport.send(bytes.clone()).await.unwrap();

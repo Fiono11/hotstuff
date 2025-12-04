@@ -88,7 +88,8 @@ impl Proposer {
             .iter()
             .cloned()
             .unzip();
-        let message = bincode::serialize(&ConsensusMessage::Propose(block.clone()))
+        let config = bincode::config::standard();
+        let message = bincode::serde::encode_to_vec(&ConsensusMessage::Propose(block.clone()), config)
             .expect("Failed to serialize block");
         let handles = self
             .network
