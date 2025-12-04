@@ -21,7 +21,6 @@ async fn synchronize() {
         name,
         committee.clone(),
         store.clone(),
-        /* gc_depth */ 50, // Not used in this test.
         /* sync_retry_delay */ 1_000_000, // Ensure it is not triggered.
         /* sync_retry_nodes */ 3, // Not used in this test.
         rx_message,

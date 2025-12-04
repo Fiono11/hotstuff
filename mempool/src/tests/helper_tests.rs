@@ -1,5 +1,8 @@
 use super::*;
-use crate::common::{batch_digest, committee_with_base_port, keys, listener, serialized_batch};
+use crate::common::{batch, committee_with_base_port, keys, listener, serialized_batch};
+use crypto::Digest;
+use ed25519_dalek::{Digest as _, Sha512};
+use std::convert::TryInto as _;
 use std::fs;
 use tokio::sync::mpsc::channel;
 
@@ -14,10 +17,14 @@ async fn batch_reply() {
     let _ = fs::remove_dir_all(path);
     let mut store = Store::new(path).unwrap();
 
-    // Add a batch to the store.
-    store
-        .write(batch_digest().to_vec(), serialized_batch())
-        .await;
+    // Create a batch and store each transaction in the store using its digest.
+    let test_batch = batch();
+    let mut digests = Vec::new();
+    for tx in &test_batch {
+        let digest = Digest(Sha512::digest(tx).as_slice()[..32].try_into().unwrap());
+        store.write(digest.to_vec(), tx.clone()).await;
+        digests.push(digest);
+    }
 
     // Spawn an `Helper` instance.
     Helper::spawn(committee.clone(), store, rx_request);
@@ -27,8 +34,7 @@ async fn batch_reply() {
     let expected = Bytes::from(serialized_batch());
     let handle = listener(address, Some(expected));
 
-    // Send a batch request.
-    let digests = vec![batch_digest()];
+    // Send a batch request with transaction digests.
     tx_request.send((digests, requestor)).await.unwrap();
 
     // Ensure the requestor received the batch (ie. it did not panic).

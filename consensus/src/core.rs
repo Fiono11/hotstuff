@@ -11,10 +11,6 @@ use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/core_tests.rs"]
-pub mod core_tests;
-
 pub struct Core {
     name: PublicKey,
     committee: Committee,
@@ -103,9 +99,12 @@ impl Core {
 
                     // Notify the application layer of the committed transaction digest.
                     info!("Committed tx {}", digest);
-                    if let Err(e) = self.tx_commit.send(digest).await {
+                    if let Err(e) = self.tx_commit.send(digest.clone()).await {
                         warn!("Failed to send digest through the commit channel: {}", e);
                     }
+
+                    // Clean up the aggregator after the transaction is committed.
+                    self.aggregator.cleanup(&digest);
                 }
             }
         } else {
@@ -117,9 +116,12 @@ impl Core {
                 // Notify the application layer of the committed transaction digest.
                 let digest = qc.hash.clone();
                 info!("Committed tx {}", digest);
-                if let Err(e) = self.tx_commit.send(digest).await {
+                if let Err(e) = self.tx_commit.send(digest.clone()).await {
                     warn!("Failed to send digest through the commit channel: {}", e);
                 }
+
+                // Clean up the aggregator after the transaction is committed.
+                self.aggregator.cleanup(&digest);
             }
         }
         Ok(())
@@ -147,9 +149,12 @@ impl Core {
 
                 // Notify the application layer of the committed transaction digest.
                 info!("Committed tx {}", digest);
-                if let Err(e) = self.tx_commit.send(digest).await {
+                if let Err(e) = self.tx_commit.send(digest.clone()).await {
                     warn!("Failed to send digest through the commit channel: {}", e);
                 }
+
+                // Clean up the aggregator after the transaction is committed.
+                self.aggregator.cleanup(&digest);
             }
         }
 

@@ -1,7 +1,11 @@
 use super::*;
+use crate::batch_maker::Batch;
 use crate::common::batch;
-use crate::mempool::MempoolMessage;
+use crate::processor::Processor;
+use crypto::Digest;
+use ed25519_dalek::Sha512;
 use std::fs;
+use store::Store;
 use tokio::sync::mpsc::channel;
 
 #[tokio::test]
@@ -18,22 +22,20 @@ async fn hash_and_store() {
     Processor::spawn(store.clone(), rx_batch, tx_digest);
 
     // Send a batch to the `Processor`.
-    let message = MempoolMessage::Batch(batch());
-    let config = bincode::config::standard();
-    let serialized = bincode::serde::encode_to_vec(&message, config).unwrap();
-    tx_batch.send(serialized.clone()).await.unwrap();
+    let test_batch: Batch = batch();
+    tx_batch.send(test_batch.clone()).await.unwrap();
 
-    // Ensure the `Processor` outputs the batch's digest.
-    let digest = Digest(
-        Sha512::digest(&serialized).as_slice()[..32]
-            .try_into()
-            .unwrap(),
-    );
-    let received = rx_digest.recv().await.unwrap();
-    assert_eq!(digest.clone(), received);
+    // Ensure the `Processor` outputs the batch's digests.
+    let received_digests = rx_digest.recv().await.unwrap();
+    assert_eq!(received_digests.len(), test_batch.len());
 
-    // Ensure the `Processor` correctly stored the batch.
-    let stored_batch = store.read(digest.to_vec()).await.unwrap();
-    assert!(stored_batch.is_some(), "The batch is not in the store");
-    assert_eq!(stored_batch.unwrap(), serialized);
+    // Ensure the `Processor` correctly stored each transaction.
+    for (i, tx) in test_batch.iter().enumerate() {
+        let expected_digest = Digest(Sha512::digest(tx).as_slice()[..32].try_into().unwrap());
+        assert_eq!(received_digests[i], expected_digest);
+
+        let stored_tx = store.read(expected_digest.to_vec()).await.unwrap();
+        assert!(stored_tx.is_some(), "Transaction {} is not in the store", i);
+        assert_eq!(stored_tx.unwrap(), *tx);
+    }
 }

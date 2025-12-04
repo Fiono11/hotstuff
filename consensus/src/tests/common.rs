@@ -1,6 +1,6 @@
 use crate::config::Committee;
 use crate::consensus::Round;
-use crate::messages::{Block, Vote, QC};
+use crate::messages::{Vote, QC};
 use bytes::Bytes;
 use crypto::Hash as _;
 use crypto::{generate_keypair, Digest, PublicKey, SecretKey, Signature};
@@ -45,34 +45,13 @@ pub fn committee_with_base_port(base_port: u16) -> Committee {
     committee
 }
 
-impl Block {
+impl Vote {
     pub fn new_from_key(
-        qc: QC,
+        hash: Digest,
+        _round: Round,
         author: PublicKey,
-        round: Round,
-        payload: Vec<Digest>,
         secret: &SecretKey,
     ) -> Self {
-        let block = Block {
-            qc,
-            author,
-            round,
-            payload,
-            signature: Signature::default(),
-        };
-        let signature = Signature::new(&block.digest(), secret);
-        Self { signature, ..block }
-    }
-}
-
-impl PartialEq for Block {
-    fn eq(&self, other: &Self) -> bool {
-        self.digest() == other.digest()
-    }
-}
-
-impl Vote {
-    pub fn new_from_key(hash: Digest, _round: Round, author: PublicKey, secret: &SecretKey) -> Self {
         // For single transaction votes, payload contains exactly one digest.
         let vote = Self {
             author,
@@ -90,17 +69,10 @@ impl PartialEq for Vote {
     }
 }
 
-
-// Fixture.
-pub fn block() -> Block {
-    let (public_key, secret_key) = keys().pop().unwrap();
-    Block::new_from_key(QC::genesis(), public_key, 1, Vec::new(), &secret_key)
-}
-
 // Fixture.
 pub fn vote() -> Vote {
     let (public_key, secret_key) = keys().pop().unwrap();
-    Vote::new_from_key(block().digest(), 1, public_key, &secret_key)
+    Vote::new_from_key(Digest::default(), 1, public_key, &secret_key)
 }
 
 // Fixture.
@@ -118,40 +90,6 @@ pub fn qc() -> QC {
         })
         .collect();
     QC { votes, ..qc }
-}
-
-// Fixture.
-pub fn chain(keys: Vec<(PublicKey, SecretKey)>) -> Vec<Block> {
-    let mut latest_qc = QC::genesis();
-    keys.iter()
-        .enumerate()
-        .map(|(i, key)| {
-            // Make a block.
-            let (public_key, secret_key) = key;
-            let block = Block::new_from_key(
-                latest_qc.clone(),
-                *public_key,
-                1 + i as Round,
-                Vec::new(),
-                secret_key,
-            );
-
-            // Make a qc for that block (it will be used for the next block).
-            let qc = QC {
-                hash: block.digest(),
-                votes: Vec::new(),
-            };
-            let digest = qc.digest();
-            let votes: Vec<_> = keys
-                .iter()
-                .map(|(public_key, secret_key)| (*public_key, Signature::new(&digest, secret_key)))
-                .collect();
-            latest_qc = QC { votes, ..qc };
-
-            // Return the block.
-            block
-        })
-        .collect()
 }
 
 // Fixture

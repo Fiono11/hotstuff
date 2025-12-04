@@ -1,7 +1,12 @@
 use super::*;
-use crate::common::{batch_digest, committee_with_base_port, keys, listener, transaction};
+use crate::common::{committee_with_base_port, keys, listener, transaction};
+use crypto::Digest;
+use ed25519_dalek::Digest as _;
+use ed25519_dalek::Sha512;
 use network::SimpleSender;
+use std::convert::TryInto as _;
 use std::fs;
+use tokio::sync::mpsc::channel;
 
 #[tokio::test]
 async fn handle_clients_transactions() {
@@ -40,7 +45,15 @@ async fn handle_clients_transactions() {
     network.send(address, Bytes::from(transaction())).await;
     network.send(address, Bytes::from(transaction())).await;
 
-    // Ensure the consensus got the batch digest.
-    let received = rx_mempool_to_consensus.recv().await.unwrap();
-    assert_eq!(batch_digest(), received);
+    // Ensure the consensus got the batch digests.
+    let received_digests = rx_mempool_to_consensus.recv().await.unwrap();
+    assert_eq!(received_digests.len(), 2);
+
+    // Verify each digest matches the expected transaction digest.
+    let tx1 = transaction();
+    let tx2 = transaction();
+    let expected_digest1 = Digest(Sha512::digest(&tx1).as_slice()[..32].try_into().unwrap());
+    let expected_digest2 = Digest(Sha512::digest(&tx2).as_slice()[..32].try_into().unwrap());
+    assert_eq!(received_digests[0], expected_digest1);
+    assert_eq!(received_digests[1], expected_digest2);
 }

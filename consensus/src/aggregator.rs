@@ -67,6 +67,11 @@ impl Aggregator {
 
         Ok(results)
     }
+
+    /// Remove a digest from the aggregator after the transaction is committed.
+    pub fn cleanup(&mut self, digest: &Digest) {
+        self.votes_aggregators.remove(digest);
+    }
 }
 
 struct QCMaker {
