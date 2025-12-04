@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use bytes::BufMut as _;
 use bytes::BytesMut;
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use crypto::Digest;
 use ed25519_dalek::{Digest as _, Sha512};
 use env_logger::Env;
@@ -32,7 +32,7 @@ struct Cli {
     #[clap(short, long, value_parser, value_name = "INT")]
     total_txs: u64,
     /// Network addresses that must be reachable before starting the benchmark.
-    #[clap(short, long, value_parser, value_name = "[Addr]", multiple = true)]
+    #[clap(short, long, value_parser, value_name = "[Addr]", action = ArgAction::Append)]
     nodes: Vec<SocketAddr>,
 }
 

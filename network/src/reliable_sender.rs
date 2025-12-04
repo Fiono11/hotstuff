@@ -6,7 +6,7 @@ use futures::stream::StreamExt as _;
 use log::{info, warn};
 use rand::prelude::SliceRandom as _;
 use rand::rngs::SmallRng;
-use rand::SeedableRng as _;
+use rand::{random, SeedableRng};
 use std::cmp::min;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
@@ -45,7 +45,7 @@ impl ReliableSender {
     pub fn new() -> Self {
         Self {
             connections: HashMap::new(),
-            rng: SmallRng::from_entropy(),
+            rng: SmallRng::seed_from_u64(random()),
         }
     }
 

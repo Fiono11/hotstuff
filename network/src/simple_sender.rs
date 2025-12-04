@@ -6,7 +6,7 @@ use futures::stream::StreamExt as _;
 use log::{info, warn};
 use rand::prelude::SliceRandom as _;
 use rand::rngs::SmallRng;
-use rand::SeedableRng as _;
+use rand::{random, SeedableRng};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -36,7 +36,7 @@ impl SimpleSender {
     pub fn new() -> Self {
         Self {
             connections: HashMap::new(),
-            rng: SmallRng::from_entropy(),
+            rng: SmallRng::seed_from_u64(random()),
         }
     }
 
