@@ -1,6 +1,6 @@
 use super::*;
 use crate::common::{committee, qc};
-use crypto::generate_keypair;
+use types::generate_keypair;
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
 

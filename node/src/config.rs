@@ -1,5 +1,5 @@
 use consensus::{Committee as ConsensusCommittee, Parameters as ConsensusParameters};
-use crypto::{generate_keypair, generate_production_keypair, PublicKey, SecretKey};
+use types::{generate_keypair, generate_production_keypair, PublicKey, SecretKey};
 use mempool::{Committee as MempoolCommittee, Parameters as MempoolParameters};
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;

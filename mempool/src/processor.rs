@@ -1,11 +1,11 @@
 use crate::batch_maker::Batch;
-use crypto::Digest;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use log::info;
 use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use types::Digest;
 
 #[cfg(test)]
 #[path = "tests/processor_tests.rs"]

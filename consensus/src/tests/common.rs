@@ -1,10 +1,10 @@
 use crate::config::Committee;
 use crate::consensus::Round;
 use crate::messages::{Vote, QC};
-use crypto::Hash as _;
-use crypto::{generate_keypair, Digest, PublicKey, SecretKey, Signature};
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
+use types::Hash as _;
+use types::{generate_keypair, Digest, PublicKey, SecretKey, Signature};
 
 // Fixture.
 pub fn keys() -> Vec<(PublicKey, SecretKey)> {

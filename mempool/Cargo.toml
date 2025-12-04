@@ -14,7 +14,7 @@ bincode = { version = "2.0.1", features = ["serde"] }
 futures = "0.3.14"
 async-trait = "0.1.50"
 
-crypto = { path = "../crypto" }
+types = { path = "../types" }
 store = { path = "../store" }
 network = { path = "../network" }
 

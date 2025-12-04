@@ -2,7 +2,7 @@ use crate::config::{Committee, Stake};
 use crate::consensus::{ConsensusMessage, Round};
 use crate::messages::{Block, QC};
 use bytes::Bytes;
-use crypto::{Digest, PublicKey, SignatureService};
+use types::{Digest, PublicKey, SignatureService};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, info};

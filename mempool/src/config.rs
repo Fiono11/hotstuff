@@ -1,4 +1,4 @@
-use crypto::PublicKey;
+use types::PublicKey;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

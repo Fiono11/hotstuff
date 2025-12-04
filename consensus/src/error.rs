@@ -1,5 +1,5 @@
 use crate::consensus::Round;
-use crypto::{CryptoError, Digest, PublicKey};
+use types::{CryptoError, Digest, PublicKey};
 use store::StoreError;
 use thiserror::Error;
 

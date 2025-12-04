@@ -1,7 +1,6 @@
 use super::*;
 use crate::common::{committee_with_base_port, keys};
 use crate::config::Parameters;
-use crypto::{Digest, SecretKey};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use futures::future::try_join_all;
@@ -9,6 +8,7 @@ use std::convert::TryInto as _;
 use std::fs;
 use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
+use types::{Digest, SecretKey};
 
 struct NodeSetup {
     handle: JoinHandle<Digest>,

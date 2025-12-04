@@ -5,7 +5,6 @@ use crate::processor::Processor;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
-use crypto::{Digest, PublicKey};
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -13,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use types::{Digest, PublicKey};
 
 #[cfg(test)]
 #[path = "tests/mempool_tests.rs"]

@@ -1,12 +1,12 @@
 use crate::config::Committee;
 use crate::error::{ConsensusError, ConsensusResult};
-use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
+use types::{Digest, Hash, PublicKey, Signature, SignatureService};
 
 #[cfg(test)]
 #[path = "tests/messages_tests.rs"]

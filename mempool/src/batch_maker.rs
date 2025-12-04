@@ -1,10 +1,10 @@
-use crypto::Digest;
 use ed25519_dalek::{Digest as _, Sha512};
 use log::info;
 use std::convert::TryInto as _;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
+use types::Digest;
 
 #[cfg(test)]
 #[path = "tests/batch_maker_tests.rs"]

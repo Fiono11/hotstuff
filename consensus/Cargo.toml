@@ -19,7 +19,7 @@ base64 = "0.22.1"
 async-trait = "0.1.50"
 
 store = { path = "../store" }
-crypto = { path = "../crypto" }
+types = { path = "../types" }
 network = { path = "../network" }
 mempool = { path = "../mempool" }
 

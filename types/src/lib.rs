@@ -19,6 +19,7 @@ use tokio::sync::oneshot;
 pub mod crypto_tests;
 
 pub type CryptoError = ed25519::Error;
+pub type EpochNumber = u128;
 
 /// Represents a hash digest (32 bytes).
 #[derive(Hash, PartialEq, Default, Eq, Clone, Deserialize, Serialize, Ord, PartialOrd)]
@@ -189,7 +190,7 @@ where
 }
 
 /// Represents an ed25519 signature.
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq, Eq)]
 pub struct Signature {
     part1: [u8; 32],
     part2: [u8; 32],
@@ -234,6 +235,72 @@ impl Signature {
             keys.push(VerifyingKey::from_bytes(&key.0)?);
         }
         dalek::verify_batch(&messages[..], &signatures[..], &keys[..])
+    }
+}
+
+/// Represents a transaction in the system.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Transaction2 {
+    /// The sender's public key.
+    pub sender: PublicKey,
+    /// The amount being transferred.
+    pub amount: u128,
+    /// The receiver's public key.
+    pub receiver: PublicKey,
+    /// The transaction nonce.
+    pub nonce: u32,
+    /// The epoch number.
+    pub epoch: EpochNumber,
+    /// The transaction signature.
+    pub signature: Signature,
+}
+
+impl Transaction2 {
+    /// Create a new transaction with all required fields.
+    pub fn new(
+        sender: PublicKey,
+        amount: u128,
+        receiver: PublicKey,
+        nonce: u32,
+        epoch: EpochNumber,
+        signature: Signature,
+    ) -> Self {
+        Self {
+            sender,
+            amount,
+            receiver,
+            nonce,
+            epoch,
+            signature,
+        }
+    }
+
+    /// Serialize the transaction to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let config = bincode::config::standard();
+        bincode::serde::encode_to_vec(self, config).expect("Failed to serialize transaction")
+    }
+
+    /// Get the length of the serialized transaction.
+    pub fn len(&self) -> usize {
+        self.to_bytes().len()
+    }
+
+    /// Check if the transaction is empty (always false for valid transactions).
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+// Note: AsRef<[u8]> is removed because Transaction must be serialized to bytes.
+// Use to_bytes() method instead for explicit serialization.
+
+// Note: From<Vec<u8>> is removed because Transaction now requires additional fields
+// (sender, amount, receiver, nonce, epoch) that cannot be derived from bytes alone.
+
+impl From<Transaction2> for Vec<u8> {
+    fn from(tx: Transaction2) -> Self {
+        tx.to_bytes()
     }
 }
 

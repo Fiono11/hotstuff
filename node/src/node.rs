@@ -1,7 +1,7 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use consensus::Consensus;
-use crypto::{Digest, SignatureService};
+use types::{Digest, SignatureService};
 use log::info;
 use mempool::Mempool;
 use store::Store;

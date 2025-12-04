@@ -1,10 +1,10 @@
 use super::*;
 use crate::common::{batch, committee_with_base_port, keys, listener, serialized_batch};
-use crypto::Digest;
 use ed25519_dalek::{Digest as _, Sha512};
 use std::convert::TryInto as _;
 use std::fs;
 use tokio::sync::mpsc::channel;
+use types::Digest;
 
 #[tokio::test]
 async fn batch_reply() {

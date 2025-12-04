@@ -4,7 +4,6 @@ use crate::error::ConsensusError;
 use crate::messages::Vote;
 use async_trait::async_trait;
 use bytes::Bytes;
-use crypto::{Digest, PublicKey, SignatureService};
 use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -12,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use types::{Digest, PublicKey, SignatureService};
 
 #[cfg(test)]
 #[path = "tests/consensus_tests.rs"]

@@ -4,7 +4,7 @@ use crate::consensus::ConsensusMessage;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::Vote;
 use bytes::Bytes;
-use crypto::{Digest, PublicKey, SignatureService};
+use types::{Digest, PublicKey, SignatureService};
 use log::{debug, error, info, warn};
 use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;

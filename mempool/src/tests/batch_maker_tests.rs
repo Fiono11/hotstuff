@@ -1,11 +1,11 @@
 use super::*;
 use crate::batch_maker::BatchMaker;
 use crate::common::transaction;
-use crypto::Digest;
 use ed25519_dalek::Sha512;
 use std::fs;
 use store::Store;
 use tokio::sync::mpsc::channel;
+use types::Digest;
 
 #[tokio::test]
 async fn make_batch() {

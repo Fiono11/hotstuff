@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use bytes::BufMut as _;
 use bytes::BytesMut;
 use clap::{ArgAction, Parser};
-use crypto::Digest;
 use ed25519_dalek::{Digest as _, Sha512};
 use env_logger::Env;
 use futures::future::join_all;
@@ -13,14 +12,10 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use types::Digest;
 
 #[derive(Parser)]
-#[clap(
-    author,
-    version,
-    about,
-    long_about = "Benchmark client for HotStuff nodes."
-)]
+#[clap(author, version, about, long_about = "Benchmark client for Rai nodes.")]
 struct Cli {
     /// The nodes timeout value.
     #[clap(short, long, value_parser, value_name = "INT")]

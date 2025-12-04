@@ -1,7 +1,7 @@
 use super::*;
 use crate::common::{committee, keys, vote};
 use crate::messages::{Vote, QC};
-use crypto::{Digest, Hash as _, Signature};
+use types::{Digest, Hash as _, Signature};
 
 #[test]
 fn add_vote() {
