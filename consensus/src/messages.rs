@@ -77,7 +77,7 @@ impl Hash for Block {
             hasher.update(x);
         }
         hasher.update(&self.qc.hash);
-        Digest(hasher.finalize().as_ref()[..32].try_into().unwrap())
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 
@@ -147,7 +147,7 @@ impl Hash for Vote {
         for digest in &self.payload {
             hasher.update(digest);
         }
-        Digest(hasher.finalize().as_ref()[..32].try_into().unwrap())
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 
@@ -197,7 +197,7 @@ impl Hash for QC {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
         hasher.update(&self.hash);
-        Digest(hasher.finalize().as_ref()[..32].try_into().unwrap())
+        Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
 

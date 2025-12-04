@@ -4,8 +4,9 @@ use base64::Engine;
 use ed25519_dalek as dalek;
 use ed25519_dalek::ed25519;
 use ed25519_dalek::Signer as _;
-use rand::rngs::OsRng;
-use rand::{CryptoRng, RngCore};
+use ed25519_dalek::{Signature as DalekSignature, SigningKey, VerifyingKey, SECRET_KEY_LENGTH};
+use rand::rng;
+use rand::RngCore;
 use serde::{de, ser, Deserialize, Serialize};
 use std::array::TryFromSliceError;
 use std::convert::{TryFrom, TryInto};
@@ -169,16 +170,21 @@ impl Drop for SecretKey {
 }
 
 pub fn generate_production_keypair() -> (PublicKey, SecretKey) {
-    generate_keypair(&mut OsRng)
+    let mut rng = rng();
+    generate_keypair(&mut rng)
 }
 
 pub fn generate_keypair<R>(csprng: &mut R) -> (PublicKey, SecretKey)
 where
-    R: CryptoRng + RngCore,
+    R: RngCore,
 {
-    let keypair = dalek::Keypair::generate(csprng);
-    let public = PublicKey(keypair.public.to_bytes());
-    let secret = SecretKey(keypair.to_bytes());
+    // Generate random bytes for the secret key
+    let mut secret_key_bytes = [0u8; SECRET_KEY_LENGTH];
+    csprng.fill_bytes(&mut secret_key_bytes);
+
+    let signing_key = SigningKey::from_bytes(&secret_key_bytes);
+    let public = PublicKey(signing_key.verifying_key().to_bytes());
+    let secret = SecretKey(signing_key.to_keypair_bytes());
     (public, secret)
 }
 
@@ -191,8 +197,12 @@ pub struct Signature {
 
 impl Signature {
     pub fn new(digest: &Digest, secret: &SecretKey) -> Self {
-        let keypair = dalek::Keypair::from_bytes(&secret.0).expect("Unable to load secret key");
-        let sig = keypair.sign(&digest.0).to_bytes();
+        // SecretKey is 64 bytes (keypair), extract the 32-byte secret key
+        let secret_key_bytes: [u8; 32] = secret.0[..32]
+            .try_into()
+            .expect("Invalid secret key length");
+        let signing_key = SigningKey::from_bytes(&secret_key_bytes);
+        let sig = signing_key.sign(&digest.0).to_bytes();
         let part1 = sig[..32].try_into().expect("Unexpected signature length");
         let part2 = sig[32..64].try_into().expect("Unexpected signature length");
         Signature { part1, part2 }
@@ -206,8 +216,8 @@ impl Signature {
     }
 
     pub fn verify(&self, digest: &Digest, public_key: &PublicKey) -> Result<(), CryptoError> {
-        let signature = ed25519::signature::Signature::from_bytes(&self.flatten())?;
-        let key = dalek::PublicKey::from_bytes(&public_key.0)?;
+        let signature = DalekSignature::try_from(&self.flatten()[..])?;
+        let key = VerifyingKey::from_bytes(&public_key.0)?;
         key.verify_strict(&digest.0, &signature)
     }
 
@@ -216,12 +226,12 @@ impl Signature {
         I: IntoIterator<Item = &'a (PublicKey, Signature)>,
     {
         let mut messages: Vec<&[u8]> = Vec::new();
-        let mut signatures: Vec<dalek::Signature> = Vec::new();
-        let mut keys: Vec<dalek::PublicKey> = Vec::new();
+        let mut signatures: Vec<DalekSignature> = Vec::new();
+        let mut keys: Vec<VerifyingKey> = Vec::new();
         for (key, sig) in votes.into_iter() {
             messages.push(&digest.0[..]);
-            signatures.push(ed25519::signature::Signature::from_bytes(&sig.flatten())?);
-            keys.push(dalek::PublicKey::from_bytes(&key.0)?);
+            signatures.push(DalekSignature::try_from(&sig.flatten()[..])?);
+            keys.push(VerifyingKey::from_bytes(&key.0)?);
         }
         dalek::verify_batch(&messages[..], &signatures[..], &keys[..])
     }
