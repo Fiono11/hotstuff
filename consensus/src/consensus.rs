@@ -47,7 +47,7 @@ impl Consensus {
         parameters.log();
 
         let (tx_consensus, rx_consensus) = channel(CHANNEL_CAPACITY);
-        let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
+        let (tx_helper, _rx_helper) = channel(CHANNEL_CAPACITY);
 
         // Spawn the network receiver.
         let mut address = committee
@@ -90,7 +90,11 @@ struct ConsensusReceiverHandler {
 
 #[async_trait]
 impl MessageHandler for ConsensusReceiverHandler {
-    async fn dispatch(&self, writer: &mut Writer, serialized: Bytes) -> Result<(), Box<dyn Error>> {
+    async fn dispatch(
+        &self,
+        _writer: &mut Writer,
+        serialized: Bytes,
+    ) -> Result<(), Box<dyn Error>> {
         // Deserialize and parse the message.
         let config = bincode::config::standard();
         match bincode::serde::decode_from_slice(&serialized, config)
