@@ -25,6 +25,7 @@ types = { path = "../types" }
 store = { path = "../store" }
 consensus = { path = "../consensus" }
 mempool = { path = "../mempool" }
+ledger = { path = "../ledger" }
 
 [features]
 benchmark = ["consensus/benchmark", "mempool/benchmark"]

@@ -9,6 +9,6 @@ publish = false
 tokio = { version = "1.5.0", features = ["sync", "rt", "macros"] }
 ed25519-dalek = { version = "2.2.0", features = ["batch"] }
 serde = { version = "1.0", features = ["derive"] }
-bincode = "2.0"
+bincode = { version = "2.0", features = ["serde"] }
 rand = "0.9.2"
 base64 = "0.22.1"

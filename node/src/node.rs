@@ -2,9 +2,10 @@ use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use consensus::Consensus;
 use types::{Digest, SignatureService};
-use log::info;
+use log::{info, warn, error};
 use mempool::Mempool;
 use store::Store;
+use ledger::Ledger;
 use tokio::sync::mpsc::{channel, Receiver};
 
 /// The default channel capacity for this module.
@@ -12,6 +13,8 @@ pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
     pub commit: Receiver<Digest>,
+    ledger: Ledger,
+    store: Store,
 }
 
 impl Node {
@@ -40,6 +43,12 @@ impl Node {
         // Make the data store.
         let store = Store::new(store_path).expect("Failed to create store");
 
+        // Create the ledger for managing account balances.
+        // We need a separate store instance for the ledger since it will be used
+        // in analyze_block while the main store is used by consensus.
+        let ledger_store = store.clone();
+        let ledger = Ledger::new(ledger_store.clone());
+
         // Run the signature service.
         let signature_service = SignatureService::new(secret_key);
 
@@ -66,7 +75,11 @@ impl Node {
         );
 
         info!("Node {} successfully booted", name);
-        Ok(Self { commit: rx_commit })
+        Ok(Self {
+            commit: rx_commit,
+            ledger,
+            store: ledger_store,
+        })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
@@ -74,8 +87,17 @@ impl Node {
     }
 
     pub async fn analyze_block(&mut self) {
-        while let Some(_tx) = self.commit.recv().await {
-            // This is where we can further process committed transaction digests.
+        while let Some(digest) = self.commit.recv().await {
+            // Execute the committed transaction in the ledger.
+            match self.ledger.execute_transaction(&digest, &self.store).await {
+                Ok(()) => {
+                    info!("Successfully executed transaction {}", digest);
+                }
+                Err(e) => {
+                    error!("Failed to execute transaction {}: {}", digest, e);
+                    // Continue processing other transactions even if one fails
+                }
+            }
         }
     }
 }
