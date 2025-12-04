@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use types::{generate_production_keypair, Transaction};
+use types::{generate_production_keypair, PublicKey, SecretKey, Transaction};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = "Benchmark client for Rai nodes.")]
@@ -23,6 +23,12 @@ struct Cli {
     /// Network addresses that must be reachable before starting the benchmark.
     #[clap(short, long, value_parser, value_name = "[Addr]", action = ArgAction::Append)]
     nodes: Vec<SocketAddr>,
+    /// The account (public key) to use for signing transactions (base64 encoded).
+    #[clap(short, long, value_parser, value_name = "STRING")]
+    account: Option<String>,
+    /// The secret key to use for signing transactions (base64 encoded).
+    #[clap(short, long, value_parser, value_name = "STRING")]
+    secret: Option<String>,
 }
 
 #[tokio::main]
@@ -34,10 +40,29 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Total transactions: {}", cli.total_txs);
+
+    // Parse account and secret if provided
+    let (sender_pk, sender_sk) = if let Some(account_str) = &cli.account {
+        let pk = PublicKey::decode_base64(account_str)
+            .context("Failed to decode account public key (must be base64 encoded)")?;
+        let sk = if let Some(secret_str) = &cli.secret {
+            SecretKey::decode_base64(secret_str)
+                .context("Failed to decode secret key (must be base64 encoded)")?
+        } else {
+            return Err(anyhow::anyhow!("Secret key is required when account is specified. Use --secret to provide the base64-encoded secret key."));
+        };
+        (pk, sk)
+    } else {
+        // Generate a new keypair if account is not specified
+        generate_production_keypair()
+    };
+
     let client = Client {
         total_txs: cli.total_txs,
         timeout: cli.timeout,
         nodes: cli.nodes,
+        sender_pk,
+        sender_sk,
     };
 
     // Wait for all nodes to be online and synchronized.
@@ -51,6 +76,8 @@ struct Client {
     total_txs: u64,
     timeout: u64,
     nodes: Vec<SocketAddr>,
+    sender_pk: PublicKey,
+    sender_sk: SecretKey,
 }
 
 impl Client {
@@ -71,8 +98,9 @@ impl Client {
         }
         info!("Connected to all {} nodes", transports.len());
 
-        // Generate keypairs for sender and receiver
-        let (sender_pk, sender_sk) = generate_production_keypair();
+        // Use the provided sender keypair, generate receiver keypair
+        let sender_pk = self.sender_pk;
+        let sender_sk = &self.sender_sk;
         let (receiver_pk, _) = generate_production_keypair();
 
         // Submit all transactions.
@@ -104,7 +132,7 @@ impl Client {
                 receiver_pk,
                 nonce,
                 0, // epoch
-                &sender_sk,
+                sender_sk,
             );
 
             let bytes = transaction.to_bytes();

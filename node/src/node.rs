@@ -1,12 +1,12 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use consensus::Consensus;
-use types::{Digest, SignatureService};
-use log::{info, warn, error};
+use ledger::Ledger;
+use log::{error, info};
 use mempool::Mempool;
 use store::Store;
-use ledger::Ledger;
 use tokio::sync::mpsc::{channel, Receiver};
+use types::{Digest, SignatureService};
 
 /// The default channel capacity for this module.
 pub const CHANNEL_CAPACITY: usize = 1_000;

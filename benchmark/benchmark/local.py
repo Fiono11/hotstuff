@@ -1,4 +1,5 @@
 import subprocess
+import json
 from math import ceil
 from os.path import basename, splitext
 from time import sleep
@@ -7,6 +8,34 @@ from benchmark.commands import CommandMaker
 from benchmark.config import Key, LocalCommittee, NodeParameters, BenchParameters, ConfigError
 from benchmark.logs import LogParser, ParseError
 from benchmark.utils import Print, BenchError, PathMaker
+
+
+# Hardcoded accounts from ledger initialization
+HARDCODED_ACCOUNTS = [
+    {
+        "name": "LIUvl4zY4nG/TZIvlQLGaUryKflf+eqY8VDWPDRT8WM=",
+        "secret": "TlHt5/RGIQyEfu8hyrPUzIpHPPoyB4hJoxhBDyUPJn8shS+XjNjicb9Nki+VAsZpSvIp+V/56pjxUNY8NFPxYw=="
+    },
+    {
+        "name": "1HxzAJYTzgqFV8uewbFqmw0Z/vBa7P9fk/4VLWWz9NM=",
+        "secret": "2C82Yf/z8xSmvv7FfgG3sdet2RtLN04dJ+G+wWs3ePfUfHMAlhPOCoVXy57BsWqbDRn+8Frs/1+T/hUtZbP00w=="
+    },
+    {
+        "name": "tWBeZcYDe00SSTbFn5R+LyZhK3426IWiZym+LmE8K6c=",
+        "secret": "MAtBualo+k1BRdR+wyHzyxOrDXqInztmbLcrP6/9hV21YF5lxgN7TRJJNsWflH4vJmErfjbohaJnKb4uYTwrpw=="
+    },
+    {
+        "name": "Rx91kiXjP2BbfrqNspKwwJQZqxVEcZwQZlSysQ6LkI0=",
+        "secret": "OfGqJckMMgOaRw3t4CAHCNpwXq1lT/2Y41pudBbQQhxHH3WSJeM/YFt+uo2ykrDAlBmrFURxnBBmVLKxDouQjQ=="
+    },
+]
+
+
+def write_hardcoded_key_file(filename, account_index):
+    """Write a key file using a hardcoded account (cycles through the 4 accounts)."""
+    account = HARDCODED_ACCOUNTS[account_index % len(HARDCODED_ACCOUNTS)]
+    with open(filename, 'w') as f:
+        json.dump(account, f, indent=4)
 
 
 class LocalBench:
@@ -58,12 +87,11 @@ class LocalBench:
             cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
             subprocess.run([cmd], shell=True)
 
-            # Generate configuration files.
+            # Generate configuration files using hardcoded accounts.
             keys = []
             key_files = [PathMaker.key_file(i) for i in range(nodes)]
-            for filename in key_files:
-                cmd = CommandMaker.generate_key(filename).split()
-                subprocess.run(cmd, check=True)
+            for i, filename in enumerate(key_files):
+                write_hardcoded_key_file(filename, i)
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
@@ -81,7 +109,9 @@ class LocalBench:
             cmd = CommandMaker.run_client(
                 timeout,
                 self.total_txs,
-                nodes=addresses  # Send to all nodes
+                nodes=addresses,  # Send to all nodes
+                account='LIUvl4zY4nG/TZIvlQLGaUryKflf+eqY8VDWPDRT8WM=',
+                secret='TlHt5/RGIQyEfu8hyrPUzIpHPPoyB4hJoxhBDyUPJn8shS+XjNjicb9Nki+VAsZpSvIp+V/56pjxUNY8NFPxYw=='
             )
             self._background_run(cmd, PathMaker.client_log_file(0))
 
