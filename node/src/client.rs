@@ -17,9 +17,6 @@ struct Cli {
     /// The nodes timeout value.
     #[clap(short, long, value_parser, value_name = "INT")]
     timeout: u64,
-    /// The size of each transaction in bytes.
-    #[clap(short, long, value_parser, value_name = "INT")]
-    size: usize,
     /// The total number of transactions to send.
     #[clap(short, long, value_parser, value_name = "INT")]
     total_txs: u64,
@@ -36,10 +33,8 @@ async fn main() -> Result<()> {
         .format_timestamp_millis()
         .init();
 
-    info!("Transactions size: {} B", cli.size);
     info!("Total transactions: {}", cli.total_txs);
     let client = Client {
-        size: cli.size,
         total_txs: cli.total_txs,
         timeout: cli.timeout,
         nodes: cli.nodes,
@@ -53,7 +48,6 @@ async fn main() -> Result<()> {
 }
 
 struct Client {
-    size: usize,
     total_txs: u64,
     timeout: u64,
     nodes: Vec<SocketAddr>,
@@ -85,25 +79,28 @@ impl Client {
         let mut total_sent = 0u64;
         let mut nonce = 0u32;
 
+        // Create a sample transaction to determine size
+        let sample_transaction = Transaction::new_signed(
+            sender_pk,
+            1000, // amount
+            receiver_pk,
+            1,
+            0, // epoch
+            &sender_sk,
+        );
+        let sample_bytes = sample_transaction.to_bytes();
+        let tx_size = sample_bytes.len();
+
         // NOTE: This log entry is used to compute performance.
         info!("Start sending transactions (total: {})", self.total_txs);
+        info!("Transaction size: {} B", tx_size);
 
         while total_sent < self.total_txs {
             nonce += 1;
-            
-            // Create a transaction with the desired size
-            // We'll adjust the amount to try to match the size, but the actual size
-            // will depend on the serialized transaction structure
-            let amount = if self.size > 100 {
-                // Use a larger amount to increase transaction size
-                (self.size as u128) * 1000
-            } else {
-                1000
-            };
-            
+
             let transaction = Transaction::new_signed(
                 sender_pk,
-                amount,
+                1000, // amount
                 receiver_pk,
                 nonce,
                 0, // epoch
@@ -111,19 +108,14 @@ impl Client {
             );
 
             let bytes = transaction.to_bytes();
-            
-            // If the transaction is smaller than desired, we can't easily pad it
-            // since it's a structured type. The size will be determined by the
-            // actual transaction structure.
-            if bytes.len() < self.size {
-                warn!(
-                    "Transaction size {} is smaller than requested size {}. Actual size: {}",
-                    total_sent, self.size, bytes.len()
-                );
-            }
 
             // Log transaction info
-            info!("Sending transaction {} (nonce: {}, size: {} B)", total_sent, nonce, bytes.len());
+            info!(
+                "Sending transaction {} (nonce: {}, size: {} B)",
+                total_sent,
+                nonce,
+                bytes.len()
+            );
 
             // Send transaction to all nodes in parallel.
             let send_futures: Vec<_> = transports

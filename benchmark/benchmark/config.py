@@ -125,7 +125,6 @@ class BenchParameters:
                 raise ConfigError('Missing or invalid number of nodes')
 
             self.nodes = [int(x) for x in nodes]
-            self.tx_size = int(json['tx_size'])
             self.faults = int(json['faults'])
             self.duration = int(json['duration'])
             self.runs = int(json['runs']) if 'runs' in json else 1
@@ -148,8 +147,6 @@ class PlotParameters:
             if not nodes:
                 raise ConfigError('Missing number of nodes')
             self.nodes = [int(x) for x in nodes]
-
-            self.tx_size = int(json['tx_size'])
 
             faults = json['faults']
             faults = faults if isinstance(faults, list) else [faults]

@@ -189,7 +189,7 @@ class Bench:
         client_logs = [PathMaker.client_log_file(i) for i in range(len(hosts))]
         for host, log_file in zip(hosts, client_logs):
             cmd = CommandMaker.run_client(
-                bench_parameters.tx_size, timeout, bench_parameters.total_txs, nodes=addresses
+                timeout, bench_parameters.total_txs, nodes=addresses
             )
             self._background_run(host, cmd, log_file)
 
@@ -282,7 +282,7 @@ class Bench:
                         )
                         self._logs(hosts, faults).print(
                             PathMaker.result_file(
-                                faults, n, r, bench_parameters.tx_size
+                                faults, n, r
                             )
                         )
                     except (

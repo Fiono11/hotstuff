@@ -44,14 +44,22 @@ class Ploter:
         return [int(x) for x in findall(r'Variable value: X=(\d+)', data)]
 
     def _tps2bps(self, x):
+        # Parse transaction size from results and convert TPS to BPS
         data = self.results[0]
-        size = int(search(r'Transaction size: (\d+)', data).group(1))
-        return x * size / 10**6
+        size_match = search(r'Transaction size: (\d+)', data)
+        if size_match:
+            size = int(size_match.group(1))
+            return x * size / 10**6
+        return 0
 
     def _bps2tps(self, x):
+        # Parse transaction size from results and convert BPS to TPS
         data = self.results[0]
-        size = int(search(r'Transaction size: (\d+)', data).group(1))
-        return x * 10**6 / size
+        size_match = search(r'Transaction size: (\d+)', data)
+        if size_match:
+            size = int(size_match.group(1))
+            return x * 10**6 / size
+        return 0
 
     def _plot(self, x_label, y_label, y_axis, z_axis, type):
         plt.figure()
@@ -143,19 +151,18 @@ class Ploter:
 
         # Load the aggregated log files.
         robustness_files, latency_files, tps_files = [], [], []
-        tx_size = params.tx_size
         
         for f in params.faults:
             for n in params.nodes:
                 robustness_files += glob(
-                    PathMaker.agg_file('robustness', f, n, 'x', tx_size, 'any')
+                    PathMaker.agg_file('robustness', f, n, 'x', 'any')
                 )
                 latency_files += glob(
-                    PathMaker.agg_file('latency', f, n, 'any', tx_size, 'any')
+                    PathMaker.agg_file('latency', f, n, 'any', 'any')
                 )
             for l in params.max_latency:
                 tps_files += glob(
-                    PathMaker.agg_file('tps', f, 'x', 'any', tx_size, l)
+                    PathMaker.agg_file('tps', f, 'x', 'any', l)
                 )
 
         # Make the plots.

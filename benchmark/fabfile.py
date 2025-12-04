@@ -15,7 +15,6 @@ def local(ctx):
         "faults": 0,
         "nodes": 4,
         "total_txs": 10_000,
-        "tx_size": 512,
         "duration": 20,
     }
     node_params = {
@@ -99,7 +98,6 @@ def remote(ctx):
         "faults": 0,
         "nodes": [4],
         "rate": [10_000],
-        "tx_size": 512,
         "duration": 300,
         "runs": 1,
     }
@@ -128,7 +126,6 @@ def plot(ctx):
     plot_params = {
         "faults": [0],
         "nodes": [10, 20, 50],
-        "tx_size": 512,
         "max_latency": [2_000, 5_000],
     }
     try:

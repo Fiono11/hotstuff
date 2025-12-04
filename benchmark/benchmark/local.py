@@ -79,7 +79,6 @@ class LocalBench:
             addresses = committee.front
             timeout = self.node_parameters.timeout_delay
             cmd = CommandMaker.run_client(
-                self.tx_size,
                 timeout,
                 self.total_txs,
                 nodes=addresses  # Send to all nodes

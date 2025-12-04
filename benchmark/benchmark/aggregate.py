@@ -10,7 +10,7 @@ from benchmark.utils import PathMaker
 
 
 class Setup:
-    def __init__(self, nodes, rate, tx_size, faults):
+    def __init__(self, nodes, rate, faults, tx_size=None):
         self.nodes = nodes
         self.rate = rate
         self.tx_size = tx_size
@@ -18,11 +18,12 @@ class Setup:
         self.max_latency = 'any'
 
     def __str__(self):
+        size_line = f' Transaction size: {self.tx_size} B\n' if self.tx_size else ''
         return (
             f' Faults: {self.faults} nodes\n'
             f' Committee size: {self.nodes} nodes\n'
             f' Input rate: {self.rate} tx/s\n'
-            f' Transaction size: {self.tx_size} B\n'
+            f'{size_line}'
             f' Max latency: {self.max_latency} ms\n'
         )
 
@@ -36,9 +37,10 @@ class Setup:
     def from_str(cls, raw):
         nodes = int(search(r'.* Committee size: (\d+)', raw).group(1))
         rate = int(search(r'.* Input rate: (\d+)', raw).group(1))
-        tx_size = int(search(r'.* Transaction size: (\d+)', raw).group(1))
+        tx_size_match = search(r'.* Transaction size: (\d+)', raw)
+        tx_size = int(tx_size_match.group(1)) if tx_size_match else None
         faults = int(search(r'.* Faults: (\d+)', raw).group(1))
-        return cls(nodes, rate, tx_size, faults)
+        return cls(nodes, rate, faults, tx_size)
 
 
 class Result:
@@ -118,7 +120,6 @@ class LogAggregator:
                     setup.faults,
                     setup.nodes, 
                     setup.rate, 
-                    setup.tx_size, 
                     max_latency=setup.max_latency
                 )
                 with open(filename, 'w') as f:

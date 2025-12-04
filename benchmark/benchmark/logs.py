@@ -31,8 +31,9 @@ class LogParser:
                 results = p.map(self._parse_clients, clients)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse client logs: {e}')
-        self.size, self.total_txs, self.start, misses, self.sent_samples \
+        self.tx_size, self.total_txs, self.start, misses, self.sent_samples \
             = zip(*results)
+        self.tx_size = self.tx_size[0] if self.tx_size else 0  # Use first client's tx size
         self.misses = sum(misses)
 
         # Parse the nodes logs.
@@ -73,11 +74,23 @@ class LogParser:
     def _parse_clients(self, log):
         if search(r'Error', log) is not None:
             raise ParseError('Client(s) panicked')
-
-        size_match = search(r'Transactions size: (\d+)', log)
-        if size_match is None:
-            raise ParseError('Failed to parse transaction size from client log')
-        size = int(size_match.group(1))
+        
+        # Parse transaction size from the log (from "Transaction size: X B" or from first transaction log)
+        tx_size_match = search(r'Transaction size: (\d+)', log)
+        if tx_size_match:
+            tx_size = int(tx_size_match.group(1))
+        else:
+            # Fallback: parse from first transaction log entry
+            tx_size_match = search(r'Sending transaction \d+ \(nonce: \d+, size: (\d+) B\)', log)
+            if tx_size_match:
+                tx_size = int(tx_size_match.group(1))
+            else:
+                # Last resort: try to get first size from transaction logs
+                sizes = findall(r'size: (\d+) B', log)
+                if sizes:
+                    tx_size = int(sizes[0])  # Use first transaction size found
+                else:
+                    raise ParseError('Failed to parse transaction size from client log')
         
         total_txs_match = search(r'Total transactions: (\d+)', log)
         if total_txs_match is None:
@@ -95,7 +108,7 @@ class LogParser:
         tmp = findall(r'\[(.*Z) .* sample transaction (\d+)', log)
         samples = {int(s): self._to_posix(t) for t, s in tmp}
 
-        return size, total_txs, start, misses, samples
+        return tx_size, total_txs, start, misses, samples
 
     def _parse_nodes(self, log):
         if search(r'panic', log) is not None:
@@ -164,9 +177,9 @@ class LogParser:
             return 0, 0, 0
         start, end = min(self.receipts.values()), max(self.commits.values())
         duration = end - start
-        # Calculate bytes: number of committed transactions * transaction size
+        # Calculate bytes: use parsed transaction size
         tx_count = len(self.commits)
-        bytes = tx_count * self.size[0]
+        bytes = tx_count * self.tx_size if self.tx_size > 0 else 0
         bps = bytes / duration if duration > 0 else 0
         tps = tx_count / duration if duration > 0 else 0
         return tps, bps, duration
@@ -185,9 +198,9 @@ class LogParser:
             return 0, 0, 0
         start, end = min(self.start), max(self.commits.values())
         duration = end - start
-        # Calculate bytes: number of committed transactions * transaction size
+        # Calculate bytes: use parsed transaction size
         tx_count = len(self.commits)
-        bytes = tx_count * self.size[0]
+        bytes = tx_count * self.tx_size if self.tx_size > 0 else 0
         bps = bytes / duration if duration > 0 else 0
         tps = tx_count / duration if duration > 0 else 0
         return tps, bps, duration
@@ -224,7 +237,7 @@ class LogParser:
             f' Faults: {self.faults} nodes\n'
             f' Committee size: {self.committee_size} nodes\n'
             f' Total transactions: {sum(self.total_txs):,} tx\n'
-            f' Transaction size: {self.size[0]:,} B\n'
+            f' Transaction size: {self.tx_size:,} B\n'
             f' Execution time: {round(duration):,} s\n'
             '\n'
             f' Consensus timeout delay: {consensus_timeout_delay:,} ms\n'
