@@ -4,7 +4,6 @@ mod aggregator;
 mod config;
 mod consensus;
 mod core;
-mod helper;
 mod messages;
 
 #[cfg(test)]
@@ -13,4 +12,4 @@ mod common;
 
 pub use crate::config::{Committee, Parameters};
 pub use crate::consensus::Consensus;
-pub use crate::messages::{Block, QC};
+pub use crate::messages::QC;

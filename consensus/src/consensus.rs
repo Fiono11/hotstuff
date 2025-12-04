@@ -1,12 +1,10 @@
 use crate::config::{Committee, Parameters};
 use crate::core::Core;
 use crate::error::ConsensusError;
-use crate::helper::Helper;
-use crate::messages::{Block, Vote};
+use crate::messages::Vote;
 use async_trait::async_trait;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
-use futures::SinkExt as _;
 use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -27,7 +25,6 @@ pub type Round = u64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ConsensusMessage {
-    Propose(Block),
     Vote(Vote),
     SyncRequest(Digest, PublicKey),
 }
@@ -81,9 +78,6 @@ impl Consensus {
             tx_mempool.clone(),
             store.clone(),
         );
-
-        // Spawn the helper module.
-        Helper::spawn(committee, store, /* rx_requests */ rx_helper);
     }
 }
 
@@ -101,22 +95,13 @@ impl MessageHandler for ConsensusReceiverHandler {
         let config = bincode::config::standard();
         match bincode::serde::decode_from_slice(&serialized, config)
             .map(|(msg, _)| msg)
-            .map_err(ConsensusError::SerializationError)? {
+            .map_err(ConsensusError::SerializationError)?
+        {
             ConsensusMessage::SyncRequest(missing, origin) => self
                 .tx_helper
                 .send((missing, origin))
                 .await
                 .expect("Failed to send consensus message"),
-            message @ ConsensusMessage::Propose(..) => {
-                // Reply with an ACK.
-                let _ = writer.send(Bytes::from("Ack")).await;
-
-                // Pass the message to the consensus core.
-                self.tx_consensus
-                    .send(message)
-                    .await
-                    .expect("Failed to consensus message")
-            }
             message => self
                 .tx_consensus
                 .send(message)
