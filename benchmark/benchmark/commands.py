@@ -41,9 +41,9 @@ class CommandMaker:
         assert isinstance(total_txs, int) and total_txs > 0
         assert isinstance(nodes, list)
         assert all(isinstance(x, str) for x in nodes)
-        nodes = f'--nodes {" ".join(nodes)}' if nodes else ''
+        nodes_str = ' '.join(f'--nodes {node}' for node in nodes) if nodes else ''
         return (f'./client --size {size} '
-                f'--timeout {timeout} --total-txs {total_txs} {nodes}')
+                f'--timeout {timeout} --total-txs {total_txs} {nodes_str}')
 
     @staticmethod
     def kill():
