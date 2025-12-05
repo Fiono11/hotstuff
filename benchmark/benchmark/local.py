@@ -80,8 +80,9 @@ class LocalBench:
             sleep(0.5)  # Removing the store may take time.
 
             # Recompile the latest code.
+            # Build from workspace root to ensure all binaries (including ledger) are built
             cmd = CommandMaker.compile().split()
-            subprocess.run(cmd, check=True, cwd=PathMaker.node_crate_path())
+            subprocess.run(cmd, check=True, cwd='..')
 
             # Create alias for the client and nodes binary.
             cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
@@ -103,6 +104,13 @@ class LocalBench:
             # Do not boot faulty nodes.
             nodes = nodes - self.faults
 
+            # Initialize ledger for each node's store.
+            Print.info('Initializing ledger for each node...')
+            dbs = [PathMaker.db_path(i) for i in range(nodes)]
+            for db in dbs:
+                cmd = CommandMaker.init_ledger(db)
+                subprocess.run(cmd.split(), check=True)
+
             # Run a single client that sends all transactions to all nodes.
             addresses = committee.front
             timeout = self.node_parameters.timeout_delay
@@ -116,7 +124,6 @@ class LocalBench:
             self._background_run(cmd, PathMaker.client_log_file(0))
 
             # Run the nodes.
-            dbs = [PathMaker.db_path(i) for i in range(nodes)]
             node_logs = [PathMaker.node_log_file(i) for i in range(nodes)]
             for key_file, db, log_file in zip(key_files, dbs, node_logs):
                 cmd = CommandMaker.run_node(
@@ -137,8 +144,15 @@ class LocalBench:
             sleep(self.duration)
             self._kill_nodes()
 
+            # Log final accounts and balances for each node.
+            Print.heading('\nFinal accounts and balances:')
+            for i, db in enumerate(dbs):
+                Print.info(f'\nNode {i} (store: {db}):')
+                cmd = CommandMaker.query_ledger(db)
+                subprocess.run(cmd.split(), check=False)  # Don't fail if query fails
+
             # Parse logs and return the parser.
-            Print.info('Parsing logs...')
+            Print.info('\nParsing logs...')
             return LogParser.process('./logs', faults=self.faults)
 
         except (subprocess.SubprocessError, ParseError) as e:

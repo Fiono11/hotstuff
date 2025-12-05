@@ -22,6 +22,7 @@ store = { path = "../store" }
 types = { path = "../types" }
 network = { path = "../network" }
 mempool = { path = "../mempool" }
+ledger = { path = "../ledger" }
 
 [dev-dependencies]
 tokio-util = { version = "0.7.3", features= ["codec"] }

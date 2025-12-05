@@ -4,6 +4,7 @@ use crate::error::ConsensusError;
 use crate::messages::Vote;
 use async_trait::async_trait;
 use bytes::Bytes;
+use ledger::Ledger;
 use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -67,6 +68,10 @@ impl Consensus {
             name, address
         );
 
+        // Create a ledger instance for executing transactions after voting.
+        let ledger_store = store.clone();
+        let ledger = Ledger::new(ledger_store);
+
         // Spawn the consensus core.
         Core::spawn(
             name,
@@ -77,6 +82,7 @@ impl Consensus {
             tx_commit,
             tx_mempool.clone(),
             store.clone(),
+            ledger,
         );
     }
 }

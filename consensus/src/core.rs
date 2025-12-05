@@ -4,12 +4,13 @@ use crate::consensus::ConsensusMessage;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::Vote;
 use bytes::Bytes;
+use ledger::Ledger;
 use log::{debug, error, info, warn};
 use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
-use types::{Digest, PublicKey, SignatureService};
+use types::{Digest, PublicKey, SignatureService, Transaction};
 
 pub struct Core {
     name: PublicKey,
@@ -24,6 +25,8 @@ pub struct Core {
     tx_mempool: Sender<ConsensusMempoolMessage>,
     /// The persistent storage to check for missing transactions.
     store: Store,
+    /// The ledger for executing transactions after voting.
+    ledger: Ledger,
     aggregator: Aggregator,
     network: SimpleSender,
 }
@@ -39,6 +42,7 @@ impl Core {
         tx_commit: Sender<Digest>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         store: Store,
+        ledger: Ledger,
     ) {
         tokio::spawn(async move {
             Self {
@@ -50,6 +54,7 @@ impl Core {
                 tx_commit,
                 tx_mempool,
                 store,
+                ledger,
                 aggregator: Aggregator::new(committee),
                 network: SimpleSender::new(),
             }
@@ -87,6 +92,9 @@ impl Core {
                         confirmed_missing.push(digest.clone());
                     }
 
+                    // Execute the transaction after voting (reaching quorum)
+                    self.execute_transaction_after_vote(&digest).await;
+
                     // Notify the application layer of the committed transaction digest.
                     info!("Committed tx {}", digest);
                     if let Err(e) = self.tx_commit.send(digest.clone()).await {
@@ -108,6 +116,9 @@ impl Core {
                 if self.store.read(digest.to_vec()).await?.is_none() {
                     confirmed_missing.push(digest.clone());
                 }
+
+                // Execute the transaction after voting (reaching quorum)
+                self.execute_transaction_after_vote(&digest).await;
 
                 // Notify the application layer of the committed transaction digest.
                 info!("Committed tx {}", digest);
@@ -155,6 +166,9 @@ impl Core {
             if let Some(qc) = qc_opt {
                 debug!("Assembled {:?}", qc);
 
+                // Execute the transaction after voting (reaching quorum)
+                self.execute_transaction_after_vote(&digest).await;
+
                 // Notify the application layer of the committed transaction digest.
                 info!("Committed tx {}", digest);
                 if let Err(e) = self.tx_commit.send(digest.clone()).await {
@@ -186,6 +200,51 @@ impl Core {
             .await;
 
         Ok(())
+    }
+
+    /// Execute a transaction after it reaches quorum (after voting).
+    async fn execute_transaction_after_vote(&mut self, digest: &Digest) {
+        // Get transaction details first to know sender and amount
+        let tx_details = self.get_transaction_details(digest).await;
+
+        match self.ledger.execute_transaction(digest, &self.store).await {
+            Ok(new_balance) => {
+                // Use the balance returned directly from execution (no need to read again)
+                if let Some((sender, amount)) = tx_details {
+                    info!(
+                        "Executed transaction {} after voting: sender {} balance after subtracting {}: {}",
+                        digest, sender, amount, new_balance
+                    );
+                } else {
+                    info!(
+                        "Executed transaction {} after voting, new balance: {}",
+                        digest, new_balance
+                    );
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Failed to execute transaction {} after voting: {}",
+                    digest, e
+                );
+            }
+        }
+    }
+
+    /// Get transaction details (sender and amount) from the store.
+    async fn get_transaction_details(&self, digest: &Digest) -> Option<(PublicKey, u128)> {
+        let mut store_clone = self.store.clone();
+        if let Ok(Some(tx_bytes)) = store_clone.read(digest.to_vec()).await {
+            let config = bincode::config::standard();
+            let result: Result<(Transaction, usize), _> =
+                bincode::serde::decode_from_slice(&tx_bytes, config);
+            match result {
+                Ok((tx, _)) => Some((tx.sender, tx.amount)),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
     }
 
     pub async fn run(&mut self) {

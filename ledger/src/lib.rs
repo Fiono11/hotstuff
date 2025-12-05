@@ -103,11 +103,12 @@ impl Ledger {
     /// Execute a committed transaction.
     /// This validates the transaction and updates account balances.
     /// The store parameter is used to fetch the transaction data.
+    /// Returns the new balance of the sender after execution.
     pub async fn execute_transaction(
         &mut self,
         digest: &Digest,
         store: &Store,
-    ) -> LedgerResult<()> {
+    ) -> LedgerResult<u128> {
         // Fetch the transaction from store
         let mut store_clone = store.clone();
         let tx_bytes = store_clone
@@ -122,10 +123,8 @@ impl Ledger {
         // Validate the transaction
         self.validate_transaction(&tx)?;
 
-        // Execute the transaction (update balances)
-        self.apply_transaction(&tx).await?;
-
-        Ok(())
+        // Execute the transaction (update balances) and return the new balance
+        self.apply_transaction(&tx).await
     }
 
     /// Validate a transaction before execution.
@@ -141,14 +140,11 @@ impl Ledger {
     }
 
     /// Apply a validated transaction to update account balances.
-    async fn apply_transaction(&mut self, tx: &Transaction) -> LedgerResult<()> {
+    /// Note: Nonces are ignored - only balance is subtracted from sender.
+    /// Returns the new balance after subtraction.
+    async fn apply_transaction(&mut self, tx: &Transaction) -> LedgerResult<u128> {
         // Get sender account
         let mut sender_account = self.get_account(&tx.sender).await?;
-
-        // Check nonce
-        if sender_account.nonce != tx.nonce {
-            return Err(LedgerError::InvalidNonce(sender_account.nonce, tx.nonce));
-        }
 
         // Check balance
         if sender_account.balance < tx.amount {
@@ -158,19 +154,17 @@ impl Ledger {
             ));
         }
 
-        // Get receiver account
-        let mut receiver_account = self.get_account(&tx.receiver).await?;
-
-        // Update balances
+        // Only subtract balance from sender (ignore nonce, don't add to receiver)
         sender_account.balance -= tx.amount;
-        sender_account.nonce += 1;
-        receiver_account.balance += tx.amount;
+        // Note: nonce is not incremented and receiver balance is not updated
 
-        // Persist both accounts
+        // Save the new balance
+        let new_balance = sender_account.balance;
+
+        // Persist sender account
         self.save_account(&tx.sender, &sender_account).await?;
-        self.save_account(&tx.receiver, &receiver_account).await?;
 
-        Ok(())
+        Ok(new_balance)
     }
 
     /// Save an account state to the store and update cache.
@@ -202,6 +196,27 @@ impl Ledger {
         Ok(())
     }
 
+    /// Subtract an amount from an account's balance.
+    /// This is used when voting for a transaction to reserve the amount.
+    pub async fn subtract_from_balance(
+        &mut self,
+        account: &PublicKey,
+        amount: u128,
+    ) -> LedgerResult<()> {
+        let mut account_state = self.get_account(account).await?;
+
+        if account_state.balance < amount {
+            return Err(LedgerError::InsufficientBalance(
+                account_state.balance,
+                amount,
+            ));
+        }
+
+        account_state.balance -= amount;
+        self.save_account(account, &account_state).await?;
+        Ok(())
+    }
+
     /// Get the key used to store an account in the store.
     fn account_key(account: &PublicKey) -> Vec<u8> {
         let mut key = b"account:".to_vec();
@@ -212,5 +227,15 @@ impl Ledger {
     /// Get all accounts (for debugging/testing purposes).
     pub fn get_all_accounts(&self) -> &HashMap<PublicKey, Account> {
         &self.accounts
+    }
+
+    /// Load all accounts from the store into the cache.
+    /// This iterates through known account keys and loads them.
+    pub async fn load_all_accounts(&mut self, known_accounts: &[PublicKey]) -> LedgerResult<()> {
+        for account in known_accounts {
+            // This will load from store if not in cache
+            let _ = self.get_account(account).await?;
+        }
+        Ok(())
     }
 }

@@ -1,8 +1,7 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use consensus::Consensus;
-use ledger::Ledger;
-use log::{error, info};
+use log::info;
 use mempool::Mempool;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -13,8 +12,6 @@ pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
     pub commit: Receiver<Digest>,
-    ledger: Ledger,
-    store: Store,
 }
 
 impl Node {
@@ -43,12 +40,6 @@ impl Node {
         // Make the data store.
         let store = Store::new(store_path).expect("Failed to create store");
 
-        // Create the ledger for managing account balances.
-        // We need a separate store instance for the ledger since it will be used
-        // in analyze_block while the main store is used by consensus.
-        let ledger_store = store.clone();
-        let ledger = Ledger::new(ledger_store.clone());
-
         // Run the signature service.
         let signature_service = SignatureService::new(secret_key);
 
@@ -75,11 +66,7 @@ impl Node {
         );
 
         info!("Node {} successfully booted", name);
-        Ok(Self {
-            commit: rx_commit,
-            ledger,
-            store: ledger_store,
-        })
+        Ok(Self { commit: rx_commit })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
@@ -87,17 +74,10 @@ impl Node {
     }
 
     pub async fn analyze_block(&mut self) {
-        while let Some(digest) = self.commit.recv().await {
-            // Execute the committed transaction in the ledger.
-            match self.ledger.execute_transaction(&digest, &self.store).await {
-                Ok(()) => {
-                    info!("Successfully executed transaction {}", digest);
-                }
-                Err(e) => {
-                    error!("Failed to execute transaction {}: {}", digest, e);
-                    // Continue processing other transactions even if one fails
-                }
-            }
+        // Transactions are now executed in the consensus layer after voting.
+        // This method just drains the commit channel.
+        while let Some(_digest) = self.commit.recv().await {
+            // Transaction execution happens in consensus/src/core.rs after voting
         }
     }
 }

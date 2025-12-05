@@ -150,7 +150,7 @@ class Bench:
             f"(cd {self.settings.repo_name} && git checkout -f {self.settings.branch})",
             f"(cd {self.settings.repo_name} && git pull -f)",
             "source $HOME/.cargo/env",
-            f"(cd {self.settings.repo_name}/node && {CommandMaker.compile()})",
+            f"(cd {self.settings.repo_name} && {CommandMaker.compile()})",
             CommandMaker.alias_binaries(f"./{self.settings.repo_name}/target/release/"),
         ]
         g = Group(*hosts, user="ubuntu", connect_kwargs=self.connect)
@@ -164,8 +164,9 @@ class Bench:
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
         # Recompile the latest code.
+        # Build from workspace root to ensure all binaries (including ledger) are built
         cmd = CommandMaker.compile().split()
-        subprocess.run(cmd, check=True, cwd=PathMaker.node_crate_path())
+        subprocess.run(cmd, check=True, cwd='..')
 
         # Create alias for the client and nodes binary.
         cmd = CommandMaker.alias_binaries(PathMaker.binary_path())
@@ -223,9 +224,17 @@ class Bench:
             )
             self._background_run(host, cmd, log_file)
 
+        # Initialize ledger for each node's store.
+        Print.info("Initializing ledger for each node...")
+        dbs = [PathMaker.db_path(i) for i in range(len(hosts))]
+        for host, db in zip(hosts, dbs):
+            cmd = CommandMaker.init_ledger(db)
+            c = Connection(host, user="ubuntu", connect_kwargs=self.connect)
+            output = c.run(cmd, hide=True)
+            self._check_stderr(output)
+
         # Run the nodes.
         key_files = [PathMaker.key_file(i) for i in range(len(hosts))]
-        dbs = [PathMaker.db_path(i) for i in range(len(hosts))]
         node_logs = [PathMaker.node_log_file(i) for i in range(len(hosts))]
         for host, key_file, db, log_file in zip(hosts, key_files, dbs, node_logs):
             cmd = CommandMaker.run_node(
@@ -246,6 +255,15 @@ class Bench:
         for _ in progress_bar(range(20), prefix=f"Running benchmark ({duration} sec):"):
             sleep(ceil(duration / 20))
         self.kill(hosts=hosts, delete_logs=False)
+
+        # Log final accounts and balances for each node.
+        Print.heading('\nFinal accounts and balances:')
+        dbs = [PathMaker.db_path(i) for i in range(len(hosts))]
+        for i, (host, db) in enumerate(zip(hosts, dbs)):
+            Print.info(f'\nNode {i} on {host} (store: {db}):')
+            cmd = CommandMaker.query_ledger(db)
+            c = Connection(host, user="ubuntu", connect_kwargs=self.connect)
+            output = c.run(cmd, hide=False, warn=True)  # Show output, don't fail on error
 
     def _logs(self, hosts, faults):
         # Delete local logs (if any).

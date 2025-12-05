@@ -52,5 +52,15 @@ class CommandMaker:
     @staticmethod
     def alias_binaries(origin):
         assert isinstance(origin, str)
-        node, client = join(origin, 'node'), join(origin, 'client')
-        return f'rm node ; rm client ; ln -s {node} . ; ln -s {client} .'
+        node, client, ledger = join(origin, 'node'), join(origin, 'client'), join(origin, 'ledger')
+        return f'rm -f node client ledger ; ln -s {node} . ; ln -s {client} . ; ln -s {ledger} .'
+
+    @staticmethod
+    def init_ledger(store):
+        assert isinstance(store, str)
+        return f'./ledger {store}'
+
+    @staticmethod
+    def query_ledger(store):
+        assert isinstance(store, str)
+        return f'./ledger {store} query'
