@@ -11,6 +11,14 @@ use tokio::time::{sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use types::{generate_production_keypair, PublicKey, SecretKey, Transaction};
 
+// Hardcoded accounts - same as in node/src/main.rs
+const HARDCODED_ACCOUNTS: &[&str] = &[
+    "LIUvl4zY4nG/TZIvlQLGaUryKflf+eqY8VDWPDRT8WM=",
+    "1HxzAJYTzgqFV8uewbFqmw0Z/vBa7P9fk/4VLWWz9NM=",
+    "tWBeZcYDe00SSTbFn5R+LyZhK3426IWiZym+LmE8K6c=",
+    "Rx91kiXjP2BbfrqNspKwwJQZqxVEcZwQZlSysQ6LkI0=",
+];
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = "Benchmark client for Rai nodes.")]
 struct Cli {
@@ -98,10 +106,32 @@ impl Client {
         }
         info!("Connected to all {} nodes", transports.len());
 
-        // Use the provided sender keypair, generate receiver keypair
+        // Use the provided sender keypair, select a hardcoded account as receiver (different from sender)
         let sender_pk = self.sender_pk;
         let sender_sk = &self.sender_sk;
-        let (receiver_pk, _) = generate_production_keypair();
+
+        // Decode all hardcoded accounts and find one that's different from the sender
+        let hardcoded_pks: Vec<PublicKey> = HARDCODED_ACCOUNTS
+            .iter()
+            .map(|s| PublicKey::decode_base64(s))
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to decode hardcoded accounts")?;
+
+        // Find a receiver that's different from the sender
+        let receiver_pk = hardcoded_pks
+            .iter()
+            .find(|pk| **pk != sender_pk)
+            .copied()
+            .unwrap_or_else(|| {
+                // Fallback: if sender is one of the hardcoded accounts, use the first one
+                // Otherwise, this shouldn't happen, but use the first hardcoded account
+                hardcoded_pks[0]
+            });
+
+        info!(
+            "Using hardcoded account as receiver: {}",
+            receiver_pk.encode_base64()
+        );
 
         // Submit all transactions.
         let mut total_sent = 0u64;

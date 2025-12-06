@@ -154,13 +154,15 @@ impl Ledger {
     }
 
     /// Apply a validated transaction to update account balances.
-    /// Note: Nonces are ignored - only balance is subtracted from sender.
-    /// Returns the new balance after subtraction.
+    /// Updates both sender and receiver balances atomically.
+    /// Note: Nonces are ignored.
+    /// Returns the new balance of the sender after subtraction.
     async fn apply_transaction(&mut self, tx: &Transaction) -> LedgerResult<u128> {
-        // Get sender account
+        // Get both sender and receiver accounts
         let mut sender_account = self.get_account(&tx.sender).await?;
+        let mut receiver_account = self.get_account(&tx.receiver).await?;
 
-        // Check balance
+        // Check sender balance
         if sender_account.balance < tx.amount {
             return Err(LedgerError::InsufficientBalance(
                 sender_account.balance,
@@ -168,15 +170,17 @@ impl Ledger {
             ));
         }
 
-        // Only subtract balance from sender (ignore nonce, don't add to receiver)
+        // Atomically update both balances: subtract from sender, add to receiver
         sender_account.balance -= tx.amount;
-        // Note: nonce is not incremented and receiver balance is not updated
+        receiver_account.balance += tx.amount;
+        // Note: nonce is not incremented
 
         // Save the new balance
         let new_balance = sender_account.balance;
 
-        // Persist sender account
+        // Persist both accounts atomically (save both before returning)
         self.save_account(&tx.sender, &sender_account).await?;
+        self.save_account(&tx.receiver, &receiver_account).await?;
 
         Ok(new_balance)
     }
