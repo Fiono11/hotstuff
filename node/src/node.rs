@@ -3,8 +3,11 @@ use crate::config::{Committee, ConfigError, Parameters, Secret};
 use consensus::Consensus;
 use log::info;
 use mempool::Mempool;
+use std::collections::HashMap;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::Mutex;
 use types::{Digest, SignatureService};
 
 /// The default channel capacity for this module.
@@ -40,6 +43,9 @@ impl Node {
         // Make the data store.
         let store = Store::new(store_path).expect("Failed to create store");
 
+        // Create shared in-memory transaction cache.
+        let tx_cache = Arc::new(Mutex::new(HashMap::<Digest, Vec<u8>>::new()));
+
         // Run the signature service.
         let signature_service = SignatureService::new(secret_key);
 
@@ -51,6 +57,7 @@ impl Node {
             store.clone(),
             rx_consensus_to_mempool,
             tx_mempool_to_consensus,
+            tx_cache.clone(),
         );
 
         // Run the consensus core.
@@ -63,6 +70,7 @@ impl Node {
             rx_mempool_to_consensus,
             tx_consensus_to_mempool,
             tx_commit,
+            tx_cache,
         );
 
         info!("Node {} successfully booted", name);

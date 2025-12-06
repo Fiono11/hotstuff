@@ -9,9 +9,12 @@ use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Mutex;
 use types::{Digest, PublicKey, SignatureService};
 
 #[cfg(test)]
@@ -43,6 +46,7 @@ impl Consensus {
         rx_mempool: Receiver<Vec<Digest>>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Digest>,
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
@@ -83,6 +87,7 @@ impl Consensus {
             tx_mempool.clone(),
             store.clone(),
             ledger,
+            tx_cache,
         );
     }
 }

@@ -1,8 +1,10 @@
 use ed25519_dalek::{Digest as _, Sha512};
 use log::info;
+use std::collections::HashMap;
 use std::convert::TryInto as _;
-use store::Store;
+use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration, Instant};
 use types::{Digest, Transaction};
 
@@ -20,10 +22,10 @@ pub struct BatchMaker {
     max_batch_delay: u64,
     /// Channel to receive transactions from the network.
     rx_transaction: Receiver<Transaction>,
-    /// The persistent storage.
-    store: Store,
     /// Output channel to deliver sealed batches' digests directly to consensus.
     tx_digest: Sender<Vec<Digest>>,
+    /// In-memory transaction cache.
+    tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     /// Holds the current batch.
     current_batch: Batch,
     /// Holds the size of the current batch (in bytes).
@@ -35,16 +37,16 @@ impl BatchMaker {
         batch_size: usize,
         max_batch_delay: u64,
         rx_transaction: Receiver<Transaction>,
-        store: Store,
         tx_digest: Sender<Vec<Digest>>,
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     ) {
         tokio::spawn(async move {
             Self {
                 batch_size,
                 max_batch_delay,
                 rx_transaction,
-                store,
                 tx_digest,
+                tx_cache,
                 current_batch: Batch::with_capacity(batch_size * 2),
                 current_batch_size: 0,
             }
@@ -104,8 +106,11 @@ impl BatchMaker {
                     .unwrap(),
             );
 
-            // Store the raw transaction bytes under its digest.
-            self.store.write(digest.to_vec(), tx_bytes).await;
+            // Store the raw transaction bytes in memory cache instead of writing to store.
+            {
+                let mut cache = self.tx_cache.lock().await;
+                cache.insert(digest.clone(), tx_bytes);
+            }
 
             // NOTE: This log entry is used to compute performance.
             info!("Received tx {}", digest);

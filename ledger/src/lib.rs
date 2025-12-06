@@ -127,6 +127,20 @@ impl Ledger {
         self.apply_transaction(&tx).await
     }
 
+    /// Execute a transaction directly from a Transaction object.
+    /// This avoids reading from store, useful when transactions are kept in memory.
+    /// Returns the new balance of the sender after execution.
+    pub async fn execute_transaction_with_tx(
+        &mut self,
+        tx: &Transaction,
+    ) -> LedgerResult<u128> {
+        // Validate the transaction
+        self.validate_transaction(tx)?;
+
+        // Execute the transaction (update balances) and return the new balance
+        self.apply_transaction(tx).await
+    }
+
     /// Validate a transaction before execution.
     fn validate_transaction(&self, tx: &Transaction) -> LedgerResult<()> {
         // Verify signature

@@ -1,5 +1,4 @@
 use crate::batch_maker::{Batch, BatchMaker};
-use types::Transaction;
 use crate::config::{Committee, Parameters};
 use crate::helper::Helper;
 use crate::processor::Processor;
@@ -10,9 +9,13 @@ use futures::sink::SinkExt as _;
 use log::{info, warn};
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Mutex;
+use types::Transaction;
 use types::{Digest, PublicKey};
 
 #[cfg(test)]
@@ -60,6 +63,7 @@ impl Mempool {
         store: Store,
         rx_consensus: Receiver<ConsensusMempoolMessage>,
         tx_consensus: Sender<Vec<Digest>>,
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
@@ -75,8 +79,8 @@ impl Mempool {
 
         // Spawn all mempool tasks.
         mempool.handle_consensus_messages(rx_consensus);
-        mempool.handle_clients_transactions();
-        mempool.handle_mempool_messages();
+        mempool.handle_clients_transactions(tx_cache.clone());
+        mempool.handle_mempool_messages(tx_cache);
 
         info!(
             "Mempool successfully booted on {}",
@@ -103,7 +107,7 @@ impl Mempool {
     }
 
     /// Spawn all tasks responsible to handle clients transactions.
-    fn handle_clients_transactions(&self) {
+    fn handle_clients_transactions(&self, tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>) {
         let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
 
         // We first receive clients' transactions from the network.
@@ -124,15 +128,15 @@ impl Mempool {
             self.parameters.batch_size,
             self.parameters.max_batch_delay,
             /* rx_transaction */ rx_batch_maker,
-            /* store */ self.store.clone(),
             /* tx_digest */ self.tx_consensus.clone(),
+            /* tx_cache */ tx_cache,
         );
 
         info!("Mempool listening to client transactions on {}", address);
     }
 
     /// Spawn all tasks responsible to handle messages from other mempools.
-    fn handle_mempool_messages(&self) {
+    fn handle_mempool_messages(&self, tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>) {
         let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
 
@@ -155,15 +159,16 @@ impl Mempool {
         Helper::spawn(
             self.committee.clone(),
             self.store.clone(),
+            /* tx_cache */ tx_cache.clone(),
             /* rx_request */ rx_helper,
         );
 
         // This `Processor` hashes and stores the batches we receive from the other mempools. It then forwards the
         // batch's digest to the consensus.
         Processor::spawn(
-            self.store.clone(),
             /* rx_batch */ rx_processor,
             /* tx_digest */ self.tx_consensus.clone(),
+            /* tx_cache */ tx_cache,
         );
 
         info!("Mempool listening to mempool messages on {}", address);
@@ -182,9 +187,11 @@ impl MessageHandler for TxReceiverHandler {
         // Deserialize the transaction from bytes.
         let config = bincode::config::standard();
         let transaction: Transaction = bincode::serde::decode_from_slice(&message, config)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)) as Box<dyn Error>)?
+            .map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)) as Box<dyn Error>
+            })?
             .0;
-        
+
         // Send the transaction to the batch maker.
         self.tx_batch_maker
             .send(transaction)

@@ -4,8 +4,11 @@ use crate::mempool::MempoolMessage;
 use bytes::Bytes;
 use log::{error, warn};
 use network::SimpleSender;
+use std::collections::HashMap;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
 use types::{Digest, PublicKey, Transaction};
 
 #[cfg(test)]
@@ -18,6 +21,8 @@ pub struct Helper {
     committee: Committee,
     /// The persistent storage.
     store: Store,
+    /// In-memory transaction cache.
+    tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     /// Input channel to receive batch requests.
     rx_request: Receiver<(Vec<Digest>, PublicKey)>,
     /// A network sender to send the batches to the other mempools.
@@ -28,12 +33,14 @@ impl Helper {
     pub fn spawn(
         committee: Committee,
         store: Store,
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
         rx_request: Receiver<(Vec<Digest>, PublicKey)>,
     ) {
         tokio::spawn(async move {
             Self {
                 committee,
                 store,
+                tx_cache,
                 rx_request,
                 network: SimpleSender::new(),
             }
@@ -55,31 +62,41 @@ impl Helper {
                 }
             };
 
-            // Collect all available transactions from the store.
+            // Collect all available transactions from cache or store.
             let mut batch: Batch = Vec::new();
             for digest in digests {
-                match self.store.read(digest.to_vec()).await {
-                    Ok(Some(data)) => {
-                        // Deserialize the stored transaction bytes into a Transaction struct.
-                        let config = bincode::config::standard();
-                        match bincode::serde::decode_from_slice(&data, config) {
-                            Ok((transaction, _)) => {
-                                let transaction: Transaction = transaction;
-                                batch.push(transaction);
-                            }
+                // First check the in-memory cache
+                let tx_bytes = {
+                    let cache = self.tx_cache.lock().await;
+                    cache.get(&digest).cloned()
+                };
+
+                let tx_bytes = match tx_bytes {
+                    Some(bytes) => Some(bytes),
+                    None => {
+                        // Fall back to store if not in cache
+                        match self.store.read(digest.to_vec()).await {
+                            Ok(Some(data)) => Some(data),
+                            Ok(None) => None,
                             Err(e) => {
-                                error!(
-                                    "Failed to deserialize transaction {} from store: {}",
-                                    digest, e
-                                );
+                                error!("Failed to read transaction {} from store: {}", digest, e);
+                                None
                             }
                         }
                     }
-                    Ok(None) => {
-                        // Transaction not found in store, skip it.
-                    }
-                    Err(e) => {
-                        error!("Failed to read transaction {} from store: {}", digest, e);
+                };
+
+                if let Some(data) = tx_bytes {
+                    // Deserialize the stored transaction bytes into a Transaction struct.
+                    let config = bincode::config::standard();
+                    match bincode::serde::decode_from_slice(&data, config) {
+                        Ok((transaction, _)) => {
+                            let transaction: Transaction = transaction;
+                            batch.push(transaction);
+                        }
+                        Err(e) => {
+                            error!("Failed to deserialize transaction {}: {}", digest, e);
+                        }
                     }
                 }
             }

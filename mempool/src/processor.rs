@@ -2,9 +2,11 @@ use crate::batch_maker::Batch;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use log::info;
+use std::collections::HashMap;
 use std::convert::TryInto;
-use store::Store;
+use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::Mutex;
 use types::Digest;
 
 #[cfg(test)]
@@ -21,12 +23,12 @@ pub struct Processor;
 
 impl Processor {
     pub fn spawn(
-        // The persistent storage.
-        mut store: Store,
         // Input channel to receive batches.
         mut rx_batch: Receiver<Batch>,
         // Output channel to send out batches' digests.
         tx_digest: Sender<Vec<Digest>>,
+        // In-memory transaction cache.
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     ) {
         tokio::spawn(async move {
             while let Some(batch) = rx_batch.recv().await {
@@ -35,10 +37,17 @@ impl Processor {
                 for tx in batch.iter() {
                     // Hash each transaction.
                     let tx_bytes = tx.to_bytes();
-                    let digest = Digest(Sha512::digest(&tx_bytes).as_slice()[..32].try_into().unwrap());
+                    let digest = Digest(
+                        Sha512::digest(&tx_bytes).as_slice()[..32]
+                            .try_into()
+                            .unwrap(),
+                    );
 
-                    // Store the raw transaction bytes under its digest.
-                    store.write(digest.to_vec(), tx_bytes).await;
+                    // Store the raw transaction bytes in memory cache instead of writing to store.
+                    {
+                        let mut cache = tx_cache.lock().await;
+                        cache.insert(digest.clone(), tx_bytes);
+                    }
 
                     // NOTE: This log entry is used to compute performance.
                     info!("Received tx {}", digest);

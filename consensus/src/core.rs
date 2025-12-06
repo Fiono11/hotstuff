@@ -8,8 +8,11 @@ use ledger::Ledger;
 use log::{debug, error, info, warn};
 use mempool::ConsensusMempoolMessage;
 use network::SimpleSender;
+use std::collections::HashMap;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::Mutex;
 use types::{Digest, PublicKey, SignatureService, Transaction};
 
 pub struct Core {
@@ -29,6 +32,12 @@ pub struct Core {
     ledger: Ledger,
     aggregator: Aggregator,
     network: SimpleSender,
+    /// In-memory transaction cache.
+    tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
+    /// Pending transactions to be committed to store (digest -> bytes).
+    pending_commits: HashMap<Digest, Vec<u8>>,
+    /// Count of confirmed transactions since last commit.
+    confirmed_count: usize,
 }
 
 impl Core {
@@ -43,6 +52,7 @@ impl Core {
         tx_mempool: Sender<ConsensusMempoolMessage>,
         store: Store,
         ledger: Ledger,
+        tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -57,6 +67,9 @@ impl Core {
                 ledger,
                 aggregator: Aggregator::new(committee),
                 network: SimpleSender::new(),
+                tx_cache,
+                pending_commits: HashMap::new(),
+                confirmed_count: 0,
             }
             .run()
             .await
@@ -87,8 +100,12 @@ impl Core {
                 if let Some(qc) = qc_opt {
                     debug!("Assembled {:?}", qc);
 
-                    // Check if we have this confirmed transaction.
-                    if self.store.read(digest.to_vec()).await?.is_none() {
+                    // Check if we have this confirmed transaction (in cache or store).
+                    let has_tx = {
+                        let cache = self.tx_cache.lock().await;
+                        cache.contains_key(&digest)
+                    } || self.store.read(digest.to_vec()).await?.is_some();
+                    if !has_tx {
                         confirmed_missing.push(digest.clone());
                     }
 
@@ -112,8 +129,12 @@ impl Core {
                 debug!("Assembled {:?}", qc);
 
                 let digest = qc.hash.clone();
-                // Check if we have this confirmed transaction.
-                if self.store.read(digest.to_vec()).await?.is_none() {
+                // Check if we have this confirmed transaction (in cache or store).
+                let has_tx = {
+                    let cache = self.tx_cache.lock().await;
+                    cache.contains_key(&digest)
+                } || self.store.read(digest.to_vec()).await?.is_some();
+                if !has_tx {
                     confirmed_missing.push(digest.clone());
                 }
 
@@ -204,23 +225,51 @@ impl Core {
 
     /// Execute a transaction after it reaches quorum (after voting).
     async fn execute_transaction_after_vote(&mut self, digest: &Digest) {
-        // Get transaction details first to know sender and amount
-        let tx_details = self.get_transaction_details(digest).await;
+        // Get transaction bytes from cache or store
+        let tx_bytes = match self.get_transaction_bytes(digest).await {
+            Some(bytes) => bytes,
+            None => {
+                error!("Transaction {} not found in cache or store", digest);
+                return;
+            }
+        };
 
-        match self.ledger.execute_transaction(digest, &self.store).await {
-            Ok(new_balance) => {
-                // Use the balance returned directly from execution (no need to read again)
-                if let Some((sender, amount)) = tx_details {
-                    info!(
-                        "Executed transaction {} after voting: sender {} balance after subtracting {}: {}",
-                        digest, sender, amount, new_balance
-                    );
-                } else {
-                    info!(
-                        "Executed transaction {} after voting, new balance: {}",
-                        digest, new_balance
-                    );
+        // Add to pending commits if not already there (for batch commit)
+        if !self.pending_commits.contains_key(digest) {
+            self.pending_commits
+                .insert(digest.clone(), tx_bytes.clone());
+        }
+
+        // Deserialize transaction for execution
+        let config = bincode::config::standard();
+        let (tx, _): (Transaction, usize) =
+            match bincode::serde::decode_from_slice(&tx_bytes, config) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to deserialize transaction {}: {}", digest, e);
+                    return;
                 }
+            };
+
+        // Get transaction details for logging
+        let sender = tx.sender;
+        let amount = tx.amount;
+
+        // Execute the transaction directly using the deserialized transaction
+        // This avoids reading from store, keeping transactions in memory
+        match self.ledger.execute_transaction_with_tx(&tx).await {
+            Ok(new_balance) => {
+                // Increment confirmed count
+                self.confirmed_count += 1;
+
+                // Log execution result
+                info!(
+                    "Executed transaction {} after voting: sender {} balance after subtracting {}: {} (confirmed_count: {})",
+                    digest, sender, amount, new_balance, self.confirmed_count
+                );
+
+                // Check if we should batch commit
+                self.maybe_batch_commit().await;
             }
             Err(e) => {
                 error!(
@@ -231,19 +280,39 @@ impl Core {
         }
     }
 
-    /// Get transaction details (sender and amount) from the store.
-    async fn get_transaction_details(&self, digest: &Digest) -> Option<(PublicKey, u128)> {
-        let mut store_clone = self.store.clone();
-        if let Ok(Some(tx_bytes)) = store_clone.read(digest.to_vec()).await {
-            let config = bincode::config::standard();
-            let result: Result<(Transaction, usize), _> =
-                bincode::serde::decode_from_slice(&tx_bytes, config);
-            match result {
-                Ok((tx, _)) => Some((tx.sender, tx.amount)),
-                Err(_) => None,
+    /// Get transaction bytes from cache or store.
+    async fn get_transaction_bytes(&self, digest: &Digest) -> Option<Vec<u8>> {
+        // First check the in-memory cache
+        {
+            let cache = self.tx_cache.lock().await;
+            if let Some(tx_bytes) = cache.get(digest) {
+                return Some(tx_bytes.clone());
             }
-        } else {
-            None
+        }
+
+        // Fall back to store if not in cache
+        let mut store_clone = self.store.clone();
+        store_clone.read(digest.to_vec()).await.ok().flatten()
+    }
+
+    /// Batch commit pending transactions to store every 10000 confirmed transactions.
+    async fn maybe_batch_commit(&mut self) {
+        const COMMIT_BATCH_SIZE: usize = 10000;
+
+        if self.confirmed_count >= COMMIT_BATCH_SIZE {
+            info!(
+                "Batch committing {} pending transactions to store (confirmed_count: {})",
+                self.pending_commits.len(),
+                self.confirmed_count
+            );
+
+            // Write all pending transactions to store
+            for (digest, tx_bytes) in self.pending_commits.drain() {
+                self.store.write(digest.to_vec(), tx_bytes).await;
+            }
+
+            // Reset confirmed count
+            self.confirmed_count = 0;
         }
     }
 
