@@ -36,6 +36,8 @@ pub struct Core {
     tx_cache: Arc<Mutex<HashMap<Digest, Vec<u8>>>>,
     /// Pending transactions to be committed to store (digest -> bytes).
     pending_commits: HashMap<Digest, Vec<u8>>,
+    /// Pending transactions to be executed on ledger (digest -> transaction).
+    pending_ledger_executions: HashMap<Digest, Transaction>,
     /// Count of confirmed transactions since last commit.
     confirmed_count: usize,
 }
@@ -69,6 +71,7 @@ impl Core {
                 network: SimpleSender::new(),
                 tx_cache,
                 pending_commits: HashMap::new(),
+                pending_ledger_executions: HashMap::new(),
                 confirmed_count: 0,
             }
             .run()
@@ -223,7 +226,8 @@ impl Core {
         Ok(())
     }
 
-    /// Execute a transaction after it reaches quorum (after voting).
+    /// Queue a transaction for deferred execution after it reaches quorum (after voting).
+    /// Transactions are only executed on the ledger when committed in batches of 10000.
     async fn execute_transaction_after_vote(&mut self, digest: &Digest) {
         // Get transaction bytes from cache or store
         let tx_bytes = match self.get_transaction_bytes(digest).await {
@@ -234,13 +238,13 @@ impl Core {
             }
         };
 
-        // Add to pending commits if not already there (for batch commit)
+        // Add to pending commits if not already there (for batch commit to store)
         if !self.pending_commits.contains_key(digest) {
             self.pending_commits
                 .insert(digest.clone(), tx_bytes.clone());
         }
 
-        // Deserialize transaction for execution
+        // Deserialize transaction for deferred ledger execution
         let config = bincode::config::standard();
         let (tx, _): (Transaction, usize) =
             match bincode::serde::decode_from_slice(&tx_bytes, config) {
@@ -255,29 +259,23 @@ impl Core {
         let sender = tx.sender;
         let amount = tx.amount;
 
-        // Execute the transaction directly using the deserialized transaction
-        // This avoids reading from store, keeping transactions in memory
-        match self.ledger.execute_transaction_with_tx(&tx).await {
-            Ok(new_balance) => {
-                // Increment confirmed count
-                self.confirmed_count += 1;
-
-                // Log execution result
-                info!(
-                    "Executed transaction {} after voting: sender {} balance after subtracting {}: {} (confirmed_count: {})",
-                    digest, sender, amount, new_balance, self.confirmed_count
-                );
-
-                // Check if we should batch commit
-                self.maybe_batch_commit().await;
-            }
-            Err(e) => {
-                error!(
-                    "Failed to execute transaction {} after voting: {}",
-                    digest, e
-                );
-            }
+        // Queue transaction for deferred ledger execution (don't execute immediately)
+        // Transactions will only be executed on the ledger when committed in batches of 10000
+        if !self.pending_ledger_executions.contains_key(digest) {
+            self.pending_ledger_executions.insert(digest.clone(), tx);
         }
+
+        // Increment confirmed count
+        self.confirmed_count += 1;
+
+        // Log that transaction is queued (not yet executed on ledger)
+        info!(
+            "Queued transaction {} for deferred ledger execution: sender {} amount {} (confirmed_count: {})",
+            digest, sender, amount, self.confirmed_count
+        );
+
+        // Check if we should batch commit (and execute on ledger)
+        self.maybe_batch_commit().await;
     }
 
     /// Get transaction bytes from cache or store.
@@ -296,12 +294,13 @@ impl Core {
     }
 
     /// Batch commit pending transactions to store every 10000 confirmed transactions.
+    /// This also executes all pending transactions on the ledger at this point.
     async fn maybe_batch_commit(&mut self) {
         const COMMIT_BATCH_SIZE: usize = 10000;
 
         if self.confirmed_count >= COMMIT_BATCH_SIZE {
             info!(
-                "Batch committing {} pending transactions to store (confirmed_count: {})",
+                "Batch committing {} pending transactions to store and executing on ledger (confirmed_count: {})",
                 self.pending_commits.len(),
                 self.confirmed_count
             );
@@ -309,6 +308,24 @@ impl Core {
             // Write all pending transactions to store
             for (digest, tx_bytes) in self.pending_commits.drain() {
                 self.store.write(digest.to_vec(), tx_bytes).await;
+            }
+
+            // Execute all pending transactions on the ledger (this is when balances actually change)
+            for (digest, tx) in self.pending_ledger_executions.drain() {
+                match self.ledger.execute_transaction_with_tx(&tx).await {
+                    Ok(new_balance) => {
+                        info!(
+                            "Executed transaction {} on ledger: sender {} balance after subtracting {}: {}",
+                            digest, tx.sender, tx.amount, new_balance
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to execute transaction {} on ledger: {}",
+                            digest, e
+                        );
+                    }
+                }
             }
 
             // Reset confirmed count

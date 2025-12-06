@@ -14,6 +14,15 @@ use mempool::Committee as MempoolCommittee;
 use std::fs;
 use store::Store;
 use tokio::task::JoinHandle;
+use types::PublicKey;
+
+// Hardcoded accounts - same as in benchmark
+const HARDCODED_ACCOUNTS: &[&str] = &[
+    "LIUvl4zY4nG/TZIvlQLGaUryKflf+eqY8VDWPDRT8WM=",
+    "1HxzAJYTzgqFV8uewbFqmw0Z/vBa7P9fk/4VLWWz9NM=",
+    "tWBeZcYDe00SSTbFn5R+LyZhK3426IWiZym+LmE8K6c=",
+    "Rx91kiXjP2BbfrqNspKwwJQZqxVEcZwQZlSysQ6LkI0=",
+];
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -100,8 +109,14 @@ async fn main() {
             nodes,
             ledger_store,
         } => match deploy_testbed(nodes, ledger_store.as_deref()).await {
-            Ok(handles) => {
+            Ok((handles, store_paths)) => {
                 let _ = join_all(handles).await;
+                // Print balances from the ledger after benchmark ends
+                if let Some(first_store) = store_paths.first() {
+                    if let Err(e) = print_ledger_balances(first_store).await {
+                        error!("Failed to print ledger balances: {}", e);
+                    }
+                }
             }
             Err(e) => error!("Failed to deploy testbed: {}", e),
         },
@@ -111,7 +126,7 @@ async fn main() {
 async fn deploy_testbed(
     nodes: u16,
     ledger_store: Option<&str>,
-) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<JoinHandle<()>>, Vec<String>), Box<dyn std::error::Error>> {
     let keys: Vec<_> = (0..nodes).map(|_| Secret::new()).collect();
 
     // Compute stakes from ledger if provided, otherwise use default of 1
@@ -157,7 +172,9 @@ async fn deploy_testbed(
     .write(committee_file)?;
 
     // Write the key files and spawn all nodes.
-    keys.iter()
+    let mut store_paths = Vec::new();
+    let handles = keys
+        .iter()
         .enumerate()
         .map(|(i, keypair)| {
             let key_file = format!("node_{}.json", i);
@@ -165,6 +182,7 @@ async fn deploy_testbed(
             keypair.write(&key_file)?;
 
             let store_path = format!("db_{}", i);
+            store_paths.push(store_path.clone());
             let _ = fs::remove_dir_all(&store_path);
 
             Ok(tokio::spawn(async move {
@@ -177,7 +195,43 @@ async fn deploy_testbed(
                 }
             }))
         })
-        .collect::<Result<_, Box<dyn std::error::Error>>>()
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+    Ok((handles, store_paths))
+}
+
+/// Print all account balances from the ledger.
+async fn print_ledger_balances(store_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n=== Final Ledger Balances ===");
+    println!("Querying ledger accounts from store: {}", store_path);
+    println!();
+
+    let store = Store::new(store_path)?;
+    let mut ledger = Ledger::new(store);
+
+    let mut total_balance = 0u128;
+    let public_keys: Vec<PublicKey> = HARDCODED_ACCOUNTS
+        .iter()
+        .map(|s| PublicKey::decode_base64(s))
+        .collect::<Result<_, _>>()?;
+
+    // Load all accounts from store
+    ledger.load_all_accounts(&public_keys).await?;
+
+    for (i, public_key) in public_keys.iter().enumerate() {
+        let account = ledger.get_account(public_key).await?;
+        println!("Account {}:", i + 1);
+        println!("  Public Key: {}", public_key.encode_base64());
+        println!("  Balance: {}", account.balance);
+        println!("  Nonce: {}", account.nonce);
+        println!();
+        total_balance += account.balance;
+    }
+
+    println!("Total balance across all accounts: {}", total_balance);
+    println!("=============================\n");
+
+    Ok(())
 }
 
 /// Compute stakes for each authority based on their account balance in the ledger.
