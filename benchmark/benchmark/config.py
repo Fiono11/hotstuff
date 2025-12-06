@@ -19,7 +19,7 @@ class Key:
 
 
 class Committee:
-    def __init__(self, names, consensus_addr, transactions_addr, mempool_addr):
+    def __init__(self, names, consensus_addr, transactions_addr, mempool_addr, stakes=None):
         inputs = [names, consensus_addr, transactions_addr, mempool_addr]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
@@ -29,6 +29,16 @@ class Committee:
         self.consensus = consensus_addr
         self.front = transactions_addr
         self.mempool = mempool_addr
+        
+        # If stakes provided, validate they match names
+        if stakes is not None:
+            assert isinstance(stakes, list)
+            assert len(stakes) == len(names)
+            assert all(isinstance(x, int) for x in stakes)
+            self.stakes = stakes
+        else:
+            # Default to stake of 1 for each node
+            self.stakes = [1] * len(names)
 
         self.json = {
             'consensus': self._build_consensus(),
@@ -37,16 +47,16 @@ class Committee:
 
     def _build_consensus(self):
         node = {}
-        for a, n in zip(self.consensus, self.names):
-            node[n] = {'name': n, 'stake': 1, 'address': a}
+        for a, n, stake in zip(self.consensus, self.names, self.stakes):
+            node[n] = {'name': n, 'stake': stake, 'address': a}
         return {'authorities': node, 'epoch': 1}
 
     def _build_mempool(self):
         node = {}
-        for n, f, m in zip(self.names, self.front, self.mempool):
+        for n, f, m, stake in zip(self.names, self.front, self.mempool, self.stakes):
             node[n] = {
                 'name': n,
-                'stake': 1,
+                'stake': stake,
                 'transactions_address': f,
                 'mempool_address': m
             }
@@ -75,11 +85,13 @@ class Committee:
             x['transactions_address'] for x in mempool_authorities
         ]
         mempool_addr = [x['mempool_address'] for x in mempool_authorities]
-        return cls(names, consensus_addr, transactions_addr, mempool_addr)
+        # Extract stakes from consensus or mempool (they should be the same)
+        stakes = [x['stake'] for x in consensus_authorities]
+        return cls(names, consensus_addr, transactions_addr, mempool_addr, stakes=stakes)
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, port):
+    def __init__(self, names, port, stakes=None):
         assert isinstance(names, list) and all(
             isinstance(x, str) for x in names)
         assert isinstance(port, int)
@@ -87,7 +99,7 @@ class LocalCommittee(Committee):
         consensus = [f'127.0.0.1:{port + i}' for i in range(size)]
         front = [f'127.0.0.1:{port + i + size}' for i in range(size)]
         mempool = [f'127.0.0.1:{port + i + 2*size}' for i in range(size)]
-        super().__init__(names, consensus, front, mempool)
+        super().__init__(names, consensus, front, mempool, stakes=stakes)
 
 
 class NodeParameters:

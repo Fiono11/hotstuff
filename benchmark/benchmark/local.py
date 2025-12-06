@@ -1,5 +1,6 @@
 import subprocess
 import json
+import re
 from math import ceil
 from os.path import basename, splitext
 from time import sleep
@@ -36,6 +37,70 @@ def write_hardcoded_key_file(filename, account_index):
     account = HARDCODED_ACCOUNTS[account_index % len(HARDCODED_ACCOUNTS)]
     with open(filename, 'w') as f:
         json.dump(account, f, indent=4)
+
+
+def compute_stakes_from_ledger(keys, ledger_store_path):
+    """
+    Compute stakes for each key based on account balances in the ledger.
+    Stakes are proportional to u128::MAX (the total supply).
+    
+    Args:
+        keys: List of Key objects with name (public key) attribute
+        ledger_store_path: Path to the ledger store
+        
+    Returns:
+        List of stake values (u32) for each key
+    """
+    TOTAL_SUPPLY = (1 << 128) - 1  # u128::MAX
+    MAX_STAKE = (1 << 32) - 1  # u32::MAX
+    
+    # Query the ledger to get balances
+    cmd = CommandMaker.query_ledger(ledger_store_path)
+    try:
+        result = subprocess.run(cmd.split(), capture_output=True, text=True, check=True)
+        output = result.stdout
+    except subprocess.CalledProcessError:
+        # If ledger query fails, return default stakes of 1
+        Print.warn(f'Failed to query ledger at {ledger_store_path}, using default stake of 1')
+        return [1] * len(keys)
+    
+    # Parse balances from ledger output
+    # Format: "Account X:\n  Public Key: ...\n  Balance: <number>\n"
+    balances = {}
+    current_key = None
+    
+    for line in output.split('\n'):
+        # Match "Public Key: <base64>"
+        key_match = re.search(r'Public Key:\s+(.+)', line)
+        if key_match:
+            current_key = key_match.group(1).strip()
+        
+        # Match "Balance: <number>"
+        balance_match = re.search(r'Balance:\s+(\d+)', line)
+        if balance_match and current_key:
+            balance = int(balance_match.group(1))
+            balances[current_key] = balance
+            current_key = None
+    
+    # Compute stakes for each key
+    stakes = []
+    for key in keys:
+        balance = balances.get(key.name, 0)
+        
+        # Compute stake proportionally: stake = (balance * u32::MAX) / u128::MAX
+        if balance == 0:
+            stake = 0
+        elif balance == TOTAL_SUPPLY:
+            stake = MAX_STAKE
+        else:
+            # Use Python's big integers to compute: (balance * MAX_STAKE) / TOTAL_SUPPLY
+            # This avoids overflow issues
+            stake_value = (balance * MAX_STAKE) // TOTAL_SUPPLY
+            stake = min(stake_value, MAX_STAKE)
+        
+        stakes.append(stake)
+    
+    return stakes
 
 
 class LocalBench:
@@ -96,20 +161,28 @@ class LocalBench:
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
-            committee = LocalCommittee(names, self.BASE_PORT)
+
+            # Initialize ledger for each node's store (use first one for stake computation).
+            Print.info('Initializing ledger for each node...')
+            dbs = [PathMaker.db_path(i) for i in range(nodes)]
+            for db in dbs:
+                cmd = CommandMaker.init_ledger(db)
+                subprocess.run(cmd.split(), check=True)
+
+            # Compute stakes from ledger balances (use first node's ledger store)
+            Print.info('Computing stakes from ledger balances...')
+            ledger_store = dbs[0] if dbs else PathMaker.db_path(0)
+            stakes = compute_stakes_from_ledger(keys, ledger_store)
+            Print.info(f'Computed stakes: {stakes}')
+
+            # Create committee with computed stakes
+            committee = LocalCommittee(names, self.BASE_PORT, stakes=stakes)
             committee.print(PathMaker.committee_file())
 
             self.node_parameters.print(PathMaker.parameters_file())
 
             # Do not boot faulty nodes.
             nodes = nodes - self.faults
-
-            # Initialize ledger for each node's store.
-            Print.info('Initializing ledger for each node...')
-            dbs = [PathMaker.db_path(i) for i in range(nodes)]
-            for db in dbs:
-                cmd = CommandMaker.init_ledger(db)
-                subprocess.run(cmd.split(), check=True)
 
             # Run a single client that sends all transactions to all nodes.
             addresses = committee.front

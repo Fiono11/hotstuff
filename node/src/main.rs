@@ -8,9 +8,11 @@ use clap::{Parser, Subcommand};
 use consensus::Committee as ConsensusCommittee;
 use env_logger::Env;
 use futures::future::join_all;
+use ledger::Ledger;
 use log::error;
 use mempool::Committee as MempoolCommittee;
 use std::fs;
+use store::Store;
 use tokio::task::JoinHandle;
 
 #[derive(Parser)]
@@ -51,6 +53,9 @@ enum Command {
     Deploy {
         #[clap(short, long, value_parser = clap::value_parser!(u16).range(4..))]
         nodes: u16,
+        /// Optional path to ledger store for computing stakes from account balances.
+        #[clap(long, value_parser, value_name = "PATH")]
+        ledger_store: Option<String>,
     },
 }
 
@@ -91,7 +96,10 @@ async fn main() {
             }
             Err(e) => error!("{}", e),
         },
-        Command::Deploy { nodes } => match deploy_testbed(nodes) {
+        Command::Deploy {
+            nodes,
+            ledger_store,
+        } => match deploy_testbed(nodes, ledger_store.as_deref()).await {
             Ok(handles) => {
                 let _ = join_all(handles).await;
             }
@@ -100,8 +108,18 @@ async fn main() {
     }
 }
 
-fn deploy_testbed(nodes: u16) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error::Error>> {
+async fn deploy_testbed(
+    nodes: u16,
+    ledger_store: Option<&str>,
+) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error::Error>> {
     let keys: Vec<_> = (0..nodes).map(|_| Secret::new()).collect();
+
+    // Compute stakes from ledger if provided, otherwise use default of 1
+    let stakes: Vec<u32> = if let Some(store_path) = ledger_store {
+        compute_stakes_from_ledger(&keys, store_path).await?
+    } else {
+        vec![1; nodes as usize]
+    };
 
     // Print the committee file.
     let epoch = 1;
@@ -110,7 +128,7 @@ fn deploy_testbed(nodes: u16) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error:
             .enumerate()
             .map(|(i, key)| {
                 let name = key.name;
-                let stake = 1;
+                let stake = stakes[i];
                 let front = format!("127.0.0.1:{}", 25_000 + i).parse().unwrap();
                 let mempool = format!("127.0.0.1:{}", 25_100 + i).parse().unwrap();
                 (name, stake, front, mempool)
@@ -123,7 +141,7 @@ fn deploy_testbed(nodes: u16) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error:
             .enumerate()
             .map(|(i, key)| {
                 let name = key.name;
-                let stake = 1;
+                let stake = stakes[i];
                 let addresses = format!("127.0.0.1:{}", 25_200 + i).parse().unwrap();
                 (name, stake, addresses)
             })
@@ -160,4 +178,51 @@ fn deploy_testbed(nodes: u16) -> Result<Vec<JoinHandle<()>>, Box<dyn std::error:
             }))
         })
         .collect::<Result<_, Box<dyn std::error::Error>>>()
+}
+
+/// Compute stakes for each authority based on their account balance in the ledger.
+/// Stakes are proportional to u128::MAX (the total supply).
+async fn compute_stakes_from_ledger(
+    keys: &[Secret],
+    store_path: &str,
+) -> Result<Vec<u32>, Box<dyn std::error::Error>> {
+    let store = Store::new(store_path)?;
+    let mut ledger = Ledger::new(store);
+
+    const TOTAL_SUPPLY: u128 = u128::MAX;
+    const MAX_STAKE: u32 = u32::MAX;
+
+    let mut stakes = Vec::new();
+
+    for key in keys {
+        let balance = ledger.get_balance(&key.name).await?;
+
+        // Compute stake proportionally: stake = (balance * u32::MAX) / u128::MAX
+        // Since balance * u32::MAX can overflow u128, handle overflow case.
+        let stake = if balance == 0 {
+            0u32
+        } else if balance == TOTAL_SUPPLY {
+            MAX_STAKE
+        } else {
+            let max_stake_128 = MAX_STAKE as u128;
+
+            // Try multiplication first, fall back to division if overflow
+            if let Some(numerator) = balance.checked_mul(max_stake_128) {
+                (numerator / TOTAL_SUPPLY) as u32
+            } else {
+                // Overflow: use division-first approach
+                // stake ≈ balance / (TOTAL_SUPPLY / MAX_STAKE)
+                let divisor = TOTAL_SUPPLY / max_stake_128;
+                if divisor == 0 {
+                    MAX_STAKE
+                } else {
+                    (balance / divisor).min(MAX_STAKE as u128) as u32
+                }
+            }
+        };
+
+        stakes.push(stake);
+    }
+
+    Ok(stakes)
 }

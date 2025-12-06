@@ -8,6 +8,7 @@ from math import ceil
 from os.path import join
 import subprocess
 import json
+import re
 
 from benchmark.config import (
     Committee,
@@ -48,6 +49,57 @@ def write_hardcoded_key_file(filename, account_index):
     account = HARDCODED_ACCOUNTS[account_index % len(HARDCODED_ACCOUNTS)]
     with open(filename, 'w') as f:
         json.dump(account, f, indent=4)
+
+
+def compute_stakes_from_ledger_output(output_text, keys):
+    """
+    Compute stakes from ledger query output.
+    
+    Args:
+        output_text: Output from ledger query command
+        keys: List of Key objects with name (public key) attribute
+        
+    Returns:
+        List of stake values (u32) for each key
+    """
+    TOTAL_SUPPLY = (1 << 128) - 1  # u128::MAX
+    MAX_STAKE = (1 << 32) - 1  # u32::MAX
+    
+    # Parse balances from ledger output
+    balances = {}
+    current_key = None
+    
+    for line in output_text.split('\n'):
+        # Match "Public Key: <base64>"
+        key_match = re.search(r'Public Key:\s+(.+)', line)
+        if key_match:
+            current_key = key_match.group(1).strip()
+        
+        # Match "Balance: <number>"
+        balance_match = re.search(r'Balance:\s+(\d+)', line)
+        if balance_match and current_key:
+            balance = int(balance_match.group(1))
+            balances[current_key] = balance
+            current_key = None
+    
+    # Compute stakes for each key
+    stakes = []
+    for key in keys:
+        balance = balances.get(key.name, 0)
+        
+        # Compute stake proportionally: stake = (balance * u32::MAX) / u128::MAX
+        if balance == 0:
+            stake = 0
+        elif balance == TOTAL_SUPPLY:
+            stake = MAX_STAKE
+        else:
+            # Use Python's big integers to compute: (balance * MAX_STAKE) / TOTAL_SUPPLY
+            stake_value = (balance * MAX_STAKE) // TOTAL_SUPPLY
+            stake = min(stake_value, MAX_STAKE)
+        
+        stakes.append(stake)
+    
+    return stakes
 
 
 class FabricError(Exception):
@@ -183,7 +235,23 @@ class Bench:
         consensus_addr = [f"{x}:{self.settings.consensus_port}" for x in hosts]
         front_addr = [f"{x}:{self.settings.front_port}" for x in hosts]
         mempool_addr = [f"{x}:{self.settings.mempool_port}" for x in hosts]
-        committee = Committee(names, consensus_addr, front_addr, mempool_addr)
+        
+        # Compute stakes by initializing a temporary local ledger
+        # (All ledgers have the same initial balances)
+        Print.info("Computing stakes from ledger balances...")
+        temp_db = PathMaker.db_path(0)
+        cmd = CommandMaker.init_ledger(temp_db)
+        try:
+            subprocess.run(cmd.split(), check=True, capture_output=True)
+            cmd = CommandMaker.query_ledger(temp_db)
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, check=True)
+            stakes = compute_stakes_from_ledger_output(result.stdout, keys)
+            Print.info(f'Computed stakes: {stakes}')
+        except subprocess.CalledProcessError:
+            Print.warn('Failed to compute stakes from ledger, using default stake of 1')
+            stakes = None
+        
+        committee = Committee(names, consensus_addr, front_addr, mempool_addr, stakes=stakes)
         committee.print(PathMaker.committee_file())
 
         node_parameters.print(PathMaker.parameters_file())
