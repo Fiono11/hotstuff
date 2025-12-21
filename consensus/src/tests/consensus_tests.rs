@@ -1,14 +1,18 @@
-use super::*;
 use crate::common::{committee_with_base_port, keys};
-use crate::config::Parameters;
+use crate::config::{Committee, Parameters};
+use crate::consensus::Consensus;
 use ed25519_dalek::Digest as _;
 use ed25519_dalek::Sha512;
 use futures::future::try_join_all;
+use std::collections::HashMap;
 use std::convert::TryInto as _;
 use std::fs;
+use std::sync::Arc;
+use store::Store;
 use tokio::sync::mpsc::channel;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use types::{Digest, SecretKey};
+use types::{Digest, PublicKey, SecretKey, SignatureService};
 
 struct NodeSetup {
     handle: JoinHandle<Digest>,
@@ -36,6 +40,7 @@ fn spawn_nodes(
             let (tx_consensus_to_mempool, mut rx_consensus_to_mempool) = channel(10);
             let (tx_mempool_to_consensus, rx_mempool_to_consensus) = channel(1);
             let (tx_commit, mut rx_commit) = channel(1);
+            let tx_cache = Arc::new(Mutex::new(HashMap::new()));
 
             // Keep a reference to the store and sender for later use
             let store_clone = store.clone();
@@ -59,6 +64,7 @@ fn spawn_nodes(
                     rx_mempool_to_consensus,
                     tx_consensus_to_mempool,
                     tx_commit,
+                    tx_cache,
                 );
 
                 rx_commit.recv().await.unwrap()
